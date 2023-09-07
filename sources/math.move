@@ -10,6 +10,8 @@ module suilette::math {
     const EUnderflow: u64 = 1;
     // <<<<<<<<<<<<<<<<<<<<<<<< Error codes <<<<<<<<<<<<<<<<<<<<<<<<
 
+    friend suilette::drand_based_roulette;
+
     // multiply two floating numbers
     public(friend) fun unsafe_mul(x: u64, y: u64): u64 {
         let (_, result) = unsafe_mul_round(x, y);
