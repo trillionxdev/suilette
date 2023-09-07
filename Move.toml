@@ -1,9 +1,10 @@
 [package]
 name = "Suilette"
 version = "0.0.1"
+published-at = "0x932770f379dbf4dd8f3467e86b726ec8b7b2040ae6eea35b945bb43b5dbbf8f8"
 
 [dependencies]
 Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/testnet" }
 
 [addresses]
-suilette = "0x0"
+suilette = "0x932770f379dbf4dd8f3467e86b726ec8b7b2040ae6eea35b945bb43b5dbbf8f8"
