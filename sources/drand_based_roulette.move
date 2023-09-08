@@ -919,7 +919,24 @@ module suilette::drand_based_roulette {
             refundAllBets<SUI>(
                 &house_cap,
                 &mut roulette_game,
-                10,
+                1,
+                test_scenario::ctx(&mut test)
+            );
+
+            test_scenario::return_to_address<HouseCap>(house, house_cap);
+            test_scenario::return_shared(roulette_game);
+        };
+        test_scenario::next_tx(&mut test, house);
+        {
+            // Get the game
+            let roulette_game = test_scenario::take_shared<RouletteGame<SUI>>(&mut test);
+            let house_cap = test_scenario::take_from_address<HouseCap>(&test, house);
+
+            // Delete
+            refundAllBets<SUI>(
+                &house_cap,
+                &mut roulette_game,
+                1,
                 test_scenario::ctx(&mut test)
             );
 
