@@ -60,6 +60,8 @@ module suilette::drand_based_roulette {
         bet_number: Option<u64>,
         bet_size: Balance<Asset>,
         player: address,
+        // REVIEW: add this field as bet status
+        is_completed: bool,
     }
 
     /// Event for placed bets
@@ -351,6 +353,7 @@ module suilette::drand_based_roulette {
             bet_number,
             bet_size,
             player: tx_context::sender(ctx),
+            is_completed: false,
         };
         let bet_balance_value = balance::value(&new_bet.bet_size);
         let bet_id = *object::uid_as_inner(&new_bet.id);
@@ -427,8 +430,8 @@ module suilette::drand_based_roulette {
             let bet = tvec::borrow_mut(bets, bet_index);
             let player_bet = balance::value(&bet.bet_size);
             // REVIEW: if bet is completed then skip it
-            if (player_bet == 0) continue;
-            let bet_payout = get_bet_payout(balance::value(&bet.bet_size), bet.bet_type);
+            if (bet.is_completed) continue;
+            let bet_payout = get_bet_payout(player_bet, bet.bet_type);
             // Increment bet index
             bet_index = bet_index + 1;
             // Deduct the house risk if its not a number bet
@@ -479,10 +482,12 @@ module suilette::drand_based_roulette {
                 vec::push_back(&mut bet_results, bet_result);
 
             };
+            // REVIEW: set bet completed and count it
+            bet.is_completed = true;
+            game.completion_counter = game.completion_counter + 1;
         };
 
         // REVIEW: if all bets completed then mark the game completed
-        game.completion_counter = game.completion_counter + vec::length(&bet_results);
         if (game.completion_counter == bets_length) {
             game.status = COMPLETED;            
         };
@@ -518,7 +523,7 @@ module suilette::drand_based_roulette {
     }
  
     fun delete_bet<Asset>(bet: Bet<Asset>, ctx: &mut TxContext) {
-        let Bet<Asset> { id, bet_type: _, bet_number: _, bet_size, player} = bet;
+        let Bet<Asset> { id, bet_type: _, bet_number: _, bet_size, player, is_completed: _} = bet;
         let player_bet = balance::value(&bet_size);
         if (player_bet > 0) {
             let player_coin = coin::take(&mut bet_size, player_bet, ctx);
