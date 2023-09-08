@@ -60,8 +60,6 @@ module suilette::drand_based_roulette {
         bet_number: Option<u64>,
         bet_size: Balance<Asset>,
         player: address,
-        // REVIEW: complete game in pagination way so make sure no double-completion
-        is_completed: bool,
     }
 
     /// Event for placed bets
@@ -350,7 +348,6 @@ module suilette::drand_based_roulette {
             bet_number,
             bet_size,
             player: tx_context::sender(ctx),
-            is_completed: false,
         };
         let bet_balance_value = balance::value(&new_bet.bet_size);
         let bet_id = *object::uid_as_inner(&new_bet.id);
@@ -424,8 +421,9 @@ module suilette::drand_based_roulette {
 
         while (bet_index < end_index) {
             let bet = tvec::borrow_mut(bets, bet_index);
+            let player_bet = balance::value(&bet.bet_size);
             // REVIEW: if bet is completed then skip it
-            if (bet.is_completed) continue;
+            if (player_bet == 0) continue;
             let bet_payout = get_bet_payout(balance::value(&bet.bet_size), bet.bet_type);
             // Increment bet index
             bet_index = bet_index + 1;
@@ -437,7 +435,6 @@ module suilette::drand_based_roulette {
             // Do number bets case first
             if (won_bet(bet.bet_type, win_roll, bet.bet_number)) {
                 let house_payment = balance::split(&mut house_data.balance, bet_payout);
-                let player_bet = balance::value(&bet.bet_size);
                 let player_coin = coin::take(&mut bet.bet_size, player_bet, ctx);
                 let player_bet_and_house_payment = coin::into_balance(player_coin);
 
@@ -462,7 +459,6 @@ module suilette::drand_based_roulette {
 
             } else {
                 // Send money to the house in losing bet
-                let player_bet = balance::value(&bet.bet_size);
                 let player_coin = coin::take(&mut bet.bet_size, player_bet, ctx);
                 balance::join(&mut house_data.balance, coin::into_balance(player_coin));
 
@@ -479,7 +475,6 @@ module suilette::drand_based_roulette {
                 vec::push_back(&mut bet_results, bet_result);
 
             };
-            bet.is_completed = true;
         };
 
         event::emit(GameCompleted<Asset> {
@@ -503,7 +498,7 @@ module suilette::drand_based_roulette {
     }
  
     fun delete_bet<Asset>(bet: Bet<Asset>, ctx: &mut TxContext) {
-        let Bet<Asset> { id, bet_type: _, bet_number: _, bet_size, player, is_completed: _} = bet;
+        let Bet<Asset> { id, bet_type: _, bet_number: _, bet_size, player} = bet;
         let player_bet = balance::value(&bet_size);
         if (player_bet > 0) {
             let player_coin = coin::take(&mut bet_size, player_bet, ctx);
