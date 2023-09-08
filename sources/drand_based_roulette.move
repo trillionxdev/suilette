@@ -8,6 +8,7 @@ module suilette::drand_based_roulette {
     use sui::tx_context::{Self, TxContext};
     use std::option::{Self, Option};
     use sui::event;
+    use sui::table_vec::{Self as tvec, TableVec};
 
     use std::vector as vec;
     use suilette::math::Self as math;
@@ -131,7 +132,7 @@ module suilette::drand_based_roulette {
         owner: address,
         status: u8,
         round: u64,
-        bets: vector<Bet<T>>,
+        bets: TableVec<Bet<T>>,
         // This is a vector mapping of specifically the total risk of the number vector
         numbers_risk: vector<NumberRisk>,
         total_risked: u64,
@@ -267,7 +268,7 @@ module suilette::drand_based_roulette {
             owner: tx_context::sender(ctx), 
             round,
             status: IN_PROGRESS,
-            bets: vec::empty(),
+            bets: tvec::empty(ctx),
             numbers_risk: numbers_risk,
             total_risked: 0,
             result_roll: 0,
@@ -356,7 +357,7 @@ module suilette::drand_based_roulette {
             player: new_bet.player
         });
 
-        vec::push_back(&mut game.bets, new_bet);
+        tvec::push_back(&mut game.bets, new_bet);
     }
 
     /// Anyone can close the game by providing the randomness of round - 1. 
@@ -407,8 +408,8 @@ module suilette::drand_based_roulette {
         let number_bet_risk = max_number_risk_vector(&game.numbers_risk);
         house_data.house_risk = house_data.house_risk - number_bet_risk;
 
-        while (bet_index < vec::length(bets)) {
-            let bet = vec::borrow_mut(bets, bet_index);
+        while (bet_index < tvec::length(bets)) {
+            let bet = tvec::borrow_mut(bets, bet_index);
             let bet_payout = get_bet_payout(balance::value(&bet.bet_size), bet.bet_type);
             // Increment bet index
             bet_index = bet_index + 1;
@@ -479,8 +480,8 @@ module suilette::drand_based_roulette {
         assert!(account_owner(house_cap) == tx_context::sender(ctx), ECallerNotHouse);
 
         let bets_mut = bets;
-        while (vec::length(bets_mut) > 0) {
-            let bet = vec::pop_back(bets_mut);
+        while (tvec::length(bets_mut) > 0) {
+            let bet = tvec::pop_back(bets_mut);
             delete_bet(bet, ctx);
         };
     }
