@@ -424,7 +424,7 @@ module suilette::drand_based_roulette {
 
         while (bet_index < end_index) {
             let bet = tvec::borrow_mut(bets, bet_index);
-            // REVIEW: if bet in complete then skip it
+            // REVIEW: if bet is completed then skip it
             if (bet.is_completed) continue;
             let bet_payout = get_bet_payout(balance::value(&bet.bet_size), bet.bet_type);
             // Increment bet index
@@ -746,6 +746,7 @@ module suilette::drand_based_roulette {
             let drand_sig = x"ad11b336ad8ca2fefeb75dfa9a7de842ac139c7c199f2e73e118c82b8919ceec27b1066724382d6a6571a0d129be9e7413873cd629720063e6b5147aab5836f076ea30a1bb142f50ed99074d206a78efb9e0091152c73dcfffdfd4927bbb88a4";
             let drand_previous_sig = x"a62f85451dbe80351a3a847f660fe987a5c518b97c0e00cdfef9b4050fc44d29a3a557285413970d492f3acb903d8c720cee37873c8ffab3d64edaa546b59233bdeeb6990aea76989c3c6f10312be62ece9706fca1f40d946fe066c4929c1ac3";
 
+            // REVIEW: use pagination way to complete
             complete<SUI>(&mut roulette_game, &house_cap, &mut house_data, drand_sig, drand_previous_sig, 0, 10, test_scenario::ctx(&mut test));
 
             test_scenario::return_shared(house_data);
@@ -806,6 +807,7 @@ module suilette::drand_based_roulette {
             let drand_sig = x"ad11b336ad8ca2fefeb75dfa9a7de842ac139c7c199f2e73e118c82b8919ceec27b1066724382d6a6571a0d129be9e7413873cd629720063e6b5147aab5836f076ea30a1bb142f50ed99074d206a78efb9e0091152c73dcfffdfd4927bbb88a4";
             let drand_previous_sig = x"a62f85451dbe80351a3a847f660fe987a5c518b97c0e00cdfef9b4050fc44d29a3a557285413970d492f3acb903d8c720cee37873c8ffab3d64edaa546b59233bdeeb6990aea76989c3c6f10312be62ece9706fca1f40d946fe066c4929c1ac3";
 
+            // REVIEW: use pagination way to complete
             complete<SUI>(&mut roulette_game, &house_cap, &mut house_data, drand_sig, drand_previous_sig, 0, 10, test_scenario::ctx(&mut test));
 
             test_scenario::return_shared(house_data);
