@@ -140,6 +140,8 @@ module suilette::drand_based_roulette {
         total_risked: u64,
         result_roll: u64,
         min_bet: u64,
+        // REVIEW: add this to count completed bets
+        completion_counter: u64,
     }
 
     // Constructor
@@ -275,6 +277,7 @@ module suilette::drand_based_roulette {
             total_risked: 0,
             result_roll: 0,
             min_bet: DEFAULT_MIN_BET,
+            completion_counter: 0,
         };
         let game_id = *object::uid_as_inner(&game.id);
         transfer::public_share_object(game);
@@ -411,7 +414,8 @@ module suilette::drand_based_roulette {
         // let bet_index = 0;
         let bet_index = cursor;
         let end_index = cursor + page_size;
-        if (end_index > tvec::length(bets)) end_index = tvec::length(bets);
+        let bets_length = tvec::length(bets);
+        if (end_index > bets_length) end_index = bets_length;
 
         let bet_results = vector<BetResult<Asset>>[];
 
@@ -477,6 +481,12 @@ module suilette::drand_based_roulette {
             };
         };
 
+        // REVIEW: if all bets completed then mark the game completed
+        game.completion_counter = game.completion_counter + vec::length(&bet_results);
+        if (game.completion_counter == bets_length) {
+            game.status = COMPLETED;            
+        };
+
         event::emit(GameCompleted<Asset> {
             game_id,
             result_roll: win_roll,
@@ -485,15 +495,25 @@ module suilette::drand_based_roulette {
 
     }
 
-    public entry fun refundAllBets<Asset>(house_cap: &HouseCap, game: &mut RouletteGame<Asset>, ctx: &mut TxContext) {
-        let RouletteGame<Asset> { id: _, owner: _, status: _, numbers_risk: _, total_risked: _, round: _, bets, result_roll: _, min_bet: _} = game;
+    public entry fun refundAllBets<Asset>(
+        house_cap: &HouseCap,
+        game: &mut RouletteGame<Asset>,
+        // REVIEW: refund in pagination way
+        page_size: u64,
+        ctx: &mut TxContext
+    ) {
+        let RouletteGame<Asset> { id: _, owner: _, status: _, numbers_risk: _, total_risked: _, round: _, bets, result_roll: _, min_bet: _, completion_counter: _} = game;
         // Only owner can delete a game
         assert!(account_owner(house_cap) == tx_context::sender(ctx), ECallerNotHouse);
 
         let bets_mut = bets;
-        while (tvec::length(bets_mut) > 0) {
+        if(page_size > tvec::length(bets_mut))
+            page_size = tvec::length(bets_mut);
+        let counter = 0;
+        while (counter < page_size) {
             let bet = tvec::pop_back(bets_mut);
             delete_bet(bet, ctx);
+            counter = counter + 1;
         };
     }
  
@@ -863,6 +883,7 @@ module suilette::drand_based_roulette {
             refundAllBets<SUI>(
                 &house_cap,
                 &mut roulette_game,
+                10,
                 test_scenario::ctx(&mut test)
             );
 
