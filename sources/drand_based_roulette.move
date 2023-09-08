@@ -422,7 +422,6 @@ module suilette::drand_based_roulette {
         let bet_results = vector<BetResult<Asset>>[];
 
         // Deduct the house risk of the max number bet since we theoretically pay it off
-        // TODO: check if this is right, not so sure about the risk stuff
         if (game.status != IN_SETTLEMENT) {
             let number_bet_risk = max_number_risk_vector(&game.numbers_risk);
             house_data.house_risk = house_data.house_risk - number_bet_risk;
