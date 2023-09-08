@@ -823,6 +823,7 @@ module suilette::drand_based_roulette {
             test_scenario::return_shared(house_data);
             test_scenario::return_shared(roulette_game);
         };
+        // REVIEW: complete first page and check the game status
         test_scenario::next_tx(&mut test, house);
         {
             // Get the game
@@ -841,6 +842,7 @@ module suilette::drand_based_roulette {
             test_scenario::return_to_address<HouseCap>(house, house_cap);
             test_scenario::return_shared(roulette_game);
         };
+        // REVIEW: complete second page and check the game status
         test_scenario::next_tx(&mut test, house);
         {
             // Get the game
@@ -859,6 +861,7 @@ module suilette::drand_based_roulette {
             test_scenario::return_to_address<HouseCap>(house, house_cap);
             test_scenario::return_shared(roulette_game);
         };
+        // REVIEW: check the game status
         test_scenario::next_tx(&mut test, player);
         {
             // Check that the house gained the bet that the player made
