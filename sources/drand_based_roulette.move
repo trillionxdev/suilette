@@ -654,15 +654,15 @@ module suilette::drand_based_roulette {
         };
 
         if (bet_type == FIRST_COLUMN) {
-            return (result_roll - 1) % 3 == 0
+            return (result_roll + 2) % 3 == 0
         };
 
         if (bet_type == SECOND_COLUMN) {
-            return (result_roll - 2) % 3 == 0
+            return (result_roll + 1) % 3 == 0
         };
 
         if (bet_type == THIRD_COLUMN) {
-            return (result_roll - 3) % 3 == 0
+            return result_roll % 3 == 0
         };
         false
     }
