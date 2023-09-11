@@ -1,6 +1,7 @@
 #[test_only]
 module suilette::player_generator {
 
+    use std::option::{Self, Option};
     use sui::coin::{Self, Coin};
     use sui::tx_context::TxContext;
     use sui::test_random::{Self, Random};
@@ -23,16 +24,22 @@ module suilette::player_generator {
         }
     }
 
-    public fun gen_coin<T>(
+    public fun gen_player_bet<T>(
         generator: &mut PlayerGenerator,
         ctx: &mut TxContext,
-    ): (address, Coin<T>) {
+    ): (address, Coin<T>, u8, Option<u64>) {
         let random = &mut generator.random;
         let player = sui::address::from_u256(test_random::next_u256(random));
         let stake_amount_diff = generator.max_stake_amount - generator.min_stake_amount;
         let stake_amount = generator.min_stake_amount + test_random::next_u64(random) % stake_amount_diff;
         let stake = coin::mint_for_testing<T>(stake_amount, ctx);
-        (player, stake)
+        let bet_type = test_random::next_u8(random) / 13;
+        let bet_number: Option<u64> = if (test_random::next_bool(random)) {
+            option::none()
+        } else {
+            option::some(test_random::next_u64(random)/38)
+        };
+        (player, stake, bet_type, bet_number)
     }
 }
 
