@@ -33,13 +33,17 @@ module suilette::player_generator {
         let stake_amount_diff = generator.max_stake_amount - generator.min_stake_amount;
         let stake_amount = generator.min_stake_amount + test_random::next_u64(random) % stake_amount_diff;
         let stake = coin::mint_for_testing<T>(stake_amount, ctx);
-        let bet_type = test_random::next_u8(random) / 13;
-        let bet_number: Option<u64> = if (test_random::next_bool(random)) {
-            option::none()
+        let bet_type = test_random::next_u8(random) % 13;
+        let bet_number: Option<u64> = if (bet_type == 2) {
+            option::some(test_random::next_u64(random) % 38)
         } else {
-            option::some(test_random::next_u64(random)/38)
+            option::none()
         };
         (player, stake, bet_type, bet_number)
+    }
+
+    public fun gen_result_roll(generator: &mut PlayerGenerator): u64 {
+        test_random::next_u64(&mut generator.random)
     }
 }
 
@@ -56,7 +60,7 @@ module suilette::init_tool {
 
     public fun setup_house_for_test<T>(
         scenario: &mut Scenario,
-        init_pool_size: u64,
+        init_house_balance: u64,
     ) {
         ts::next_tx(scenario, house());
         {
@@ -76,19 +80,16 @@ module suilette::init_tool {
         {
             // Top up the house
             let house_data = ts::take_shared<HouseData<T>>(scenario);
-            let house_cap = ts::take_from_address<HouseCap>(scenario, house());
+            
             dbr::top_up(
                 &mut house_data,
                 coin::mint_for_testing<T>(
-                    init_pool_size,
+                    init_house_balance,
                     ts::ctx(scenario),
                 ),
             );
 
-            // Test create
-            dbr::create<T>(3125272, &mut house_data, &house_cap, ts::ctx(scenario));
             ts::return_shared(house_data);
-            ts::return_to_address<HouseCap>(house(), house_cap);
         };
     }
 

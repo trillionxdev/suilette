@@ -505,7 +505,7 @@ module suilette::drand_based_roulette {
 
     }
 
-    public entry fun refundAllBets<Asset>(
+    public entry fun refund_all_bets<Asset>(
         house_cap: &HouseCap,
         game: &mut RouletteGame<Asset>,
         // REVIEW: refund in pagination way
@@ -920,7 +920,7 @@ module suilette::drand_based_roulette {
             let house_cap = test_scenario::take_from_address<HouseCap>(&test, house);
 
             // Delete
-            refundAllBets<SUI>(
+            refund_all_bets<SUI>(
                 &house_cap,
                 &mut roulette_game,
                 1,
@@ -937,7 +937,7 @@ module suilette::drand_based_roulette {
             let house_cap = test_scenario::take_from_address<HouseCap>(&test, house);
 
             // Delete
-            refundAllBets<SUI>(
+            refund_all_bets<SUI>(
                 &house_cap,
                 &mut roulette_game,
                 1,
@@ -955,5 +955,113 @@ module suilette::drand_based_roulette {
             test_scenario::return_shared(house_data);
         };
         test_scenario::end(test);
+    }
+
+    #[test_only]
+        public entry fun complete_for_testing<Asset>(
+        game: &mut RouletteGame<Asset>, 
+        house_cap: &HouseCap,        
+        house_data: &mut HouseData<Asset>, 
+        result_roll: u64,
+        // REVIEW: complete in pagination way
+        cursor: u64,
+        page_size: u64,
+        ctx: &mut TxContext
+    ) {
+        assert!(game.status != COMPLETED, EGameAlreadyCompleted);
+        assert!(account_owner(house_cap) == tx_context::sender(ctx), ECallerNotHouse);
+
+        // We accept some small amount of bias with safe selection
+        // 0 or 37 are both losses unless they picked a number
+        game.result_roll = result_roll;
+        // std::debug::print(&win_roll);
+
+        // Pay out the bets or claim the balance to house
+        let bets = &mut game.bets;
+        
+        // REVIEW: start from cursor, instead of starting from 0
+        // let bet_index = 0;
+        let bet_index = cursor;
+        let end_index = cursor + page_size;
+        let bets_length = tvec::length(bets);
+        if (end_index > bets_length) end_index = bets_length;
+
+        let bet_results = vector<BetResult<Asset>>[];
+
+        // Deduct the house risk of the max number bet since we theoretically pay it off
+        if (game.status != IN_SETTLEMENT) {
+            let number_bet_risk = max_number_risk_vector(&game.numbers_risk);
+            house_data.house_risk = house_data.house_risk - number_bet_risk;
+        };
+        game.status = IN_SETTLEMENT;
+        
+        while (bet_index < end_index) {
+            let bet = tvec::borrow_mut(bets, bet_index);
+            let player_bet = balance::value(&bet.bet_size);
+            // REVIEW: if bet is settled then skip it
+            if (bet.is_settled) {
+                // Increment bet index
+                bet_index = bet_index + 1;
+                continue
+            };
+            let bet_payout = get_bet_payout(player_bet, bet.bet_type);
+            // Deduct the house risk if its not a number bet
+            if (bet.bet_type != NUMBER_BET) {
+                house_data.house_risk = house_data.house_risk - bet_payout;
+            };
+
+            // Do number bets case first
+            if (won_bet(bet.bet_type, result_roll, bet.bet_number)) {
+                let house_payment = balance::split(&mut house_data.balance, bet_payout);
+                let player_coin = coin::take(&mut bet.bet_size, player_bet, ctx);
+                let player_bet_and_house_payment = coin::into_balance(player_coin);
+
+                balance::join(&mut player_bet_and_house_payment, house_payment);
+                
+                let total_value = balance::value(&player_bet_and_house_payment);
+                let payment_coin = coin::take(&mut player_bet_and_house_payment, total_value, ctx);
+                transfer::public_transfer(payment_coin, bet.player);
+                balance::destroy_zero(player_bet_and_house_payment);
+
+                // Event emit for the bet results
+                let bet_id = *object::uid_as_inner(&bet.id);
+                let bet_result = BetResult<Asset> {
+                    bet_id: bet_id,
+                    is_win: true,
+                    bet_type: bet.bet_type,
+                    bet_number: bet.bet_number,
+                    bet_size: player_bet,
+                    player: bet.player,
+                };
+                vec::push_back(&mut bet_results, bet_result);
+
+            } else {
+                // Send money to the house in losing bet
+                let player_coin = coin::take(&mut bet.bet_size, player_bet, ctx);
+                balance::join(&mut house_data.balance, coin::into_balance(player_coin));
+
+                // Event emit for the bet results
+                let bet_id = *object::uid_as_inner(&bet.id);
+                let bet_result = BetResult<Asset> {
+                    bet_id: bet_id,
+                    is_win: false,
+                    bet_type: bet.bet_type,
+                    bet_number: bet.bet_number,
+                    bet_size: player_bet,
+                    player: bet.player,
+                };
+                vec::push_back(&mut bet_results, bet_result);
+            };
+            // Increment bet index
+            bet_index = bet_index + 1;
+            // REVIEW: set bet settled and count it
+            bet.is_settled = true;
+            game.settled_bets_count = game.settled_bets_count + 1;
+        };
+
+        // REVIEW: if all bets settled then mark the game completed
+        if (game.settled_bets_count == bets_length) {
+            game.status = COMPLETED;            
+        };
     }
 }
