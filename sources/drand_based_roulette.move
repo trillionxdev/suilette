@@ -234,7 +234,7 @@ module suilette::drand_based_roulette {
     /// House can have multiple accounts so giving the treasury balance is not limited.
     /// @param house_data: The HouseData object
     /// @param coin: The coin object that will be used to top up the house balance. The entire coin is consumed
-    public entry fun top_up<Asset>(house_data: &mut HouseData<Asset>, coin: Coin<Asset>, _: &mut TxContext) {        
+    public entry fun top_up<Asset>(house_data: &mut HouseData<Asset>, coin: Coin<Asset>) {        
         let coin_value = coin::value(&coin);
         let coin_balance = coin::into_balance(coin);
         event::emit(HouseDeposit<Asset> { amount: coin_value });
@@ -718,7 +718,7 @@ module suilette::drand_based_roulette {
             // Top up the house
             let house_data = test_scenario::take_shared<HouseData<SUI>>(scenario);
             let house_cap = test_scenario::take_from_address<HouseCap>(scenario, house);
-            top_up(&mut house_data, mint_for_testing<SUI>(1000 * 1000000000, test_scenario::ctx(scenario)), test_scenario::ctx(scenario));
+            top_up(&mut house_data, mint_for_testing<SUI>(1000 * 1000000000, test_scenario::ctx(scenario)));
 
             // Test create
             create<SUI>(3125272, &mut house_data, &house_cap, test_scenario::ctx(scenario));
