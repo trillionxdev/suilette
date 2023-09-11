@@ -733,6 +733,11 @@ module suilette::drand_based_roulette {
     #[test] fun test_cannot_exceed_max_risk() {}
     #[test] fun test_bet_type_pay_out_as_expected() {}
 
+    #[test_only]
+    public fun init_for_testing(ctx: &mut TxContext) {
+        init(ctx);
+    }
+
     // begin with house address
     #[test_only]
     fun scenario(): Scenario { test_scenario::begin(@0xAAAA) }
