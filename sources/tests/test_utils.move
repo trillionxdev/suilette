@@ -41,10 +41,6 @@ module suilette::player_generator {
         };
         (player, stake, bet_type, bet_number)
     }
-
-    public fun gen_result_roll(generator: &mut PlayerGenerator): u64 {
-        test_random::next_u64(&mut generator.random)
-    }
 }
 
 #[test_only]

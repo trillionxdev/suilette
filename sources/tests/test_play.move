@@ -22,10 +22,11 @@ module suilette::test_play {
             10_000_000_000,
         );
 
-        let round_count: u64 = 100;
+        let round_count: u64 = 190;
         let round_idx: u64 = 0;
         while(round_idx < round_count) {
             // std::debug::print(&round_idx);
+            let result_roll = round_idx % 38;
             ts::next_tx(scenario, house());
             {
                 let house_data = ts::take_shared<HouseData<SUI>>(scenario);
@@ -65,18 +66,16 @@ module suilette::test_play {
             };
 
             ts::next_tx(scenario, house());
-            let result_roll = {
+            {
                 let game = ts::take_shared<RouletteGame<SUI>>(scenario);
                 let house_data = ts::take_shared<HouseData<SUI>>(scenario);
                 let house_cap = ts::take_from_sender<HouseCap>(scenario);
-                let result_roll = pg::gen_result_roll(pgs);
 
                 dbr::complete_for_testing<SUI>(&mut game, &house_cap, &mut house_data, result_roll, 0, 100, ts::ctx(scenario));
 
                 ts::return_shared(game);
                 ts::return_shared(house_data);
                 ts::return_to_sender<HouseCap>(scenario, house_cap);
-                result_roll
             };
 
             ts::next_tx(scenario, house());
