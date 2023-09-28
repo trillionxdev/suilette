@@ -10,17 +10,15 @@ module suilette::math {
     const EUnderflow: u64 = 1;
     // <<<<<<<<<<<<<<<<<<<<<<<< Error codes <<<<<<<<<<<<<<<<<<<<<<<<
 
-    friend suilette::drand_based_roulette;
-
     // multiply two floating numbers
-    public(friend) fun unsafe_mul(x: u64, y: u64): u64 {
+    public fun unsafe_mul(x: u64, y: u64): u64 {
         let (_, result) = unsafe_mul_round(x, y);
         result
     }
 
     // multiply two floating numbers
     // also returns whether the result is rounded down
-    public(friend) fun unsafe_mul_round(x: u64, y: u64): (bool, u64) {
+    public fun unsafe_mul_round(x: u64, y: u64): (bool, u64) {
         let x = (x as u128);
         let y = (y as u128);
         let is_round_down = true;
@@ -72,7 +70,7 @@ module suilette::math {
         (is_round_down, result)
     }
 
-    public(friend) fun count_leading_zeros(x: u128): u8 {
+    public fun count_leading_zeros(x: u128): u8 {
         if (x == 0) {
             128
         } else {

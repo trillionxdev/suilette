@@ -6,8 +6,9 @@ module suilette::test_play {
     use sui::sui::SUI;
     use sui::coin::{Self, Coin};
     use sui::test_scenario as ts;
-    use suilette::drand_based_roulette::{Self as dbr, HouseData, RouletteGame, HouseCap};
+    use suilette::suilette_game::{Self as sgame, HouseData, SuiletteGame, HouseCap};
     use suilette::player_generator as pg;
+    use suilette::bet_manager as bm;
     use suilette::init_tool::{Self, house};
 
     #[test]
@@ -22,7 +23,7 @@ module suilette::test_play {
             10_000_000_000,
         );
 
-        let round_count: u64 = 190;
+        let round_count: u64 = 50;
         let round_idx: u64 = 0;
         while(round_idx < round_count) {
             // std::debug::print(&round_idx);
@@ -32,13 +33,13 @@ module suilette::test_play {
                 let house_data = ts::take_shared<HouseData<SUI>>(scenario);
                 let house_cap = ts::take_from_address<HouseCap>(scenario, house());
         
-                dbr::create<SUI>(round_idx, &mut house_data, &house_cap, ts::ctx(scenario));
+                sgame::create<SUI>(round_idx, &mut house_data, &house_cap, ts::ctx(scenario));
 
                 ts::return_shared(house_data);
                 ts::return_to_address<HouseCap>(house(), house_cap);
             };
 
-            let player_count: u64 = 40;
+            let player_count: u64 = 80;
             let player_idx: u64 = 0;
             let players = vector<address>[];
             let player_bet_sizes = vector<u64>[];
@@ -49,10 +50,10 @@ module suilette::test_play {
                 let bet_size = coin::value(&bet);
                 ts::next_tx(scenario, player);
                 {
-                    let game = ts::take_shared<RouletteGame<SUI>>(scenario);
+                    let game = ts::take_shared<SuiletteGame<SUI>>(scenario);
                     let house_data = ts::take_shared<HouseData<SUI>>(scenario);
 
-                    dbr::place_bet(bet, bet_type, bet_number, &mut game, &mut house_data, ts::ctx(scenario));
+                    sgame::place_bet(bet, bet_type, bet_number, &mut game, &mut house_data, ts::ctx(scenario));
                     vector::push_back(&mut players, player);
                     vector::push_back(&mut player_bet_sizes, bet_size);
                     vector::push_back(&mut player_bet_types, bet_type);
@@ -67,11 +68,12 @@ module suilette::test_play {
 
             ts::next_tx(scenario, house());
             {
-                let game = ts::take_shared<RouletteGame<SUI>>(scenario);
+                let game = ts::take_shared<SuiletteGame<SUI>>(scenario);
+                // std::debug::print(sgame::risk_manager(&game));
                 let house_data = ts::take_shared<HouseData<SUI>>(scenario);
                 let house_cap = ts::take_from_sender<HouseCap>(scenario);
 
-                dbr::complete_for_testing<SUI>(&mut game, &house_cap, &mut house_data, result_roll, 0, 100, ts::ctx(scenario));
+                sgame::complete_for_testing<SUI>(&mut game, &house_cap, &mut house_data, result_roll, 0, 100, ts::ctx(scenario));
 
                 ts::return_shared(game);
                 ts::return_shared(house_data);
@@ -82,7 +84,8 @@ module suilette::test_play {
             let house_balance_before_refund = {
                 let house_data = ts::take_shared<HouseData<SUI>>(scenario);
 
-                let house_balance = dbr::balance(&house_data);
+                assert!(sgame::house_risk(&house_data) == 0, 0);
+                let house_balance = sgame::balance(&house_data);
                 std::debug::print(&house_balance);
                 
                 ts::return_shared(house_data);
@@ -91,11 +94,11 @@ module suilette::test_play {
 
             ts::next_tx(scenario, house());
             {
-                let game = ts::take_shared<RouletteGame<SUI>>(scenario);
+                let game = ts::take_shared<SuiletteGame<SUI>>(scenario);
                 let house_data = ts::take_shared<HouseData<SUI>>(scenario);
                 let house_cap = ts::take_from_sender<HouseCap>(scenario);
 
-                dbr::refund_all_bets<SUI>(&house_cap,&mut game, 100, ts::ctx(scenario));
+                sgame::refund_all_bets<SUI>(&house_cap,&mut game, 100, ts::ctx(scenario));
 
                 ts::return_shared(game);
                 ts::return_shared(house_data);
@@ -106,8 +109,8 @@ module suilette::test_play {
             {
                 let house_data = ts::take_shared<HouseData<SUI>>(scenario);
 
-                assert!(house_balance_before_refund == dbr::balance(&house_data), 0);
-                
+                assert!(house_balance_before_refund == sgame::balance(&house_data), 0);
+
                 ts::return_shared(house_data);
             };
 
@@ -119,9 +122,9 @@ module suilette::test_play {
                     let bet_size = *vector::borrow(&player_bet_sizes, player_idx);
                     let bet_type = *vector::borrow(&player_bet_types, player_idx);
                     let bet_number = *vector::borrow(&player_bet_numbers, player_idx);
-                    if (dbr::won_bet(bet_type, result_roll, bet_number)) {
+                    if (bm::won_bet(bet_type, result_roll, bet_number)) {
                         let payout = ts::take_from_sender<Coin<SUI>>(scenario);
-                        assert!(dbr::get_bet_payout(bet_size, bet_type) + bet_size == coin::value(&payout), 0);
+                        assert!(bm::get_bet_payout(bet_size, bet_type) + bet_size == coin::value(&payout), 0);
                         ts::return_to_sender(scenario, payout);
                     } else {
                         let coin_ids = ts::ids_for_sender<Coin<SUI>>(scenario);

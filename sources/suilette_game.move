@@ -1,59 +1,32 @@
 /// A sui based implementation of roulette with american roulette edge
-module suilette::drand_based_roulette {
-    use suilette::drand_lib::{derive_randomness, verify_drand_signature, safe_selection};
-    use sui::object::{Self, UID, ID};
+module suilette::suilette_game {
+
+    use std::vector::{Self as vec};
+    use std::option::{Self, Option};
+    use sui::object::{Self, UID};
     use sui::balance::{Self, Balance};
     use sui::transfer;
     use sui::coin::{Self, Coin};
     use sui::tx_context::{Self, TxContext};
-    use std::option::{Self, Option};
-    use sui::event;
     use sui::table_vec::{Self as tvec, TableVec};
 
-    use std::vector as vec;
-    use suilette::math::Self as math;
+    use suilette::drand_lib::{derive_randomness, verify_drand_signature, safe_selection};
+    use suilette::events::{Self, BetResult};
+    use suilette::game_status::{Self as status};
+    use suilette::risk_manager::{Self as rm, RiskManager};
+    use suilette::bet_manager::{Self as bm};
 
     /// Error codes
     const EGameNotInProgress: u64 = 0;
     const EGameAlreadyCompleted: u64 = 1;
-    const EInvalidRandomness: u64 = 2;
     const ECallerNotHouse: u64 = 4;
-    const ECanNotCancel: u64 = 5;
     const EInsufficientBalance: u64 = 6;
-    const EGameHasAlreadyBeenCanceled: u64 = 7;
     const EInsufficientHouseBalance: u64 = 8;
-    const ECoinBalanceNotEnough: u64 = 9;
     const EInvalidBetType: u64 = 10;
-    const EGameCannotBeDeleted: u64 = 11;
-    const EInvalidBet: u64 = 12;
-    const ENotEnoughHouseRisk: u64 = 13;
-    const ENotEnoughNumberRisk: u64 = 14;
-    const EAdminAccountCapRequired: u64 = 15;
-
-    /// Game status
-    const IN_PROGRESS: u8 = 0;
-    const CLOSED: u8 = 1;
-    const IN_SETTLEMENT: u8 = 2; // REVIEW: add a status
-    const COMPLETED: u8 = 3;
+    const EInvalidBetNumber: u64 = 12;
 
     // 1 SUI is the default min bet
     const DEFAULT_MIN_BET: u64 = 1000000000;
-
-    /// Bet Types
-    /// We can group different bets for cheaper computation
-    const RED_BET: u8 = 0;
-    const BLACK_BET: u8 = 1;
-    const NUMBER_BET: u8 = 2;
-    const EVEN_BET: u8 = 3;
-    const ODD_BET: u8 = 4;
-    const FIRST_TWELVE: u8 = 5;
-    const SECOND_TWELVE: u8 = 6;
-    const THIRD_TWELVE: u8 = 7;
-    const FIRST_EIGHTEEN:u8 = 8;
-    const SECOND_EIGHTEEN: u8 = 9;
-    const FIRST_COLUMN: u8 = 10;
-    const SECOND_COLUMN: u8 = 11;
-    const THIRD_COLUMN: u8 = 12;
 
     struct Bet<phantom Asset> has key, store {
         id: UID,
@@ -61,59 +34,12 @@ module suilette::drand_based_roulette {
         bet_number: Option<u64>,
         bet_size: Balance<Asset>,
         player: address,
-        // REVIEW: add this field as bet status
         is_settled: bool,
     }
 
-    /// Event for placed bets
-    struct PlaceBet<phantom Asset> has copy, store, drop {
-        bet_id: ID,
-        bet_type: u8,
-        bet_number: Option<u64>,
-        bet_size: u64,
-        player: address,
-    }
-
-    /// Event for the bet result
-    struct BetResult<phantom Asset> has copy, store, drop {
-        bet_id: ID,
-        is_win: bool,
-        bet_type: u8,
-        bet_number: Option<u64>,
-        bet_size: u64,
-        player: address,
-    }
-
-    /// Event for game close
-    struct GameCreated<phantom Asset> has copy, store, drop {
-        game_id: ID,
-    }
-
-    /// Event for game close
-    struct GameClosed<phantom Asset> has copy, store, drop {
-        game_id: ID,
-    }
-
-    /// Event for game completion
-    struct GameCompleted<phantom Asset> has copy, store, drop {
-        game_id: ID,
-        result_roll: u64,
-        bet_results: vector<BetResult<Asset>>,
-    }
-
-    /// Event for house deposit
-    struct HouseDeposit<phantom Asset> has copy, store, drop {
-        amount: u64
-    }
-
-    /// Event for house withdraw
-    struct HouseWithdraw<phantom Asset> has copy, store, drop {
-        amount: u64
-    }
-
-    struct HouseData<phantom T> has key {
+    struct HouseData<phantom Asset> has key {
         id: UID,
-        balance: Balance<T>,
+        balance: Balance<Asset>,
         house: address,
         house_risk: u64,
         max_risk_per_game: u64,
@@ -126,24 +52,15 @@ module suilette::drand_based_roulette {
         owner: address,
     }
 
-    struct NumberRisk has copy, store, drop {
-        risk: u64
-    }
-
-    struct RouletteGame<phantom T> has key, store {
+    struct SuiletteGame<phantom Asset> has key, store {
         id: UID,
         owner: address,
         status: u8,
         round: u64,
-        // REVIEW: use TableVec on bets instead of vector
-        // bets: vector<Bet<T>>,
-        bets: TableVec<Bet<T>>,
-        // This is a vector mapping of specifically the total risk of the number vector
-        numbers_risk: vector<NumberRisk>,
-        total_risked: u64,
+        bets: TableVec<Bet<Asset>>,
+        risk_manager: RiskManager,
         result_roll: u64,
         min_bet: u64,
-        // REVIEW: add this to count settled bets
         settled_bets_count: u64,
     }
 
@@ -193,6 +110,12 @@ module suilette::drand_based_roulette {
         house_data.house_risk
     }
 
+    /// Returns the risk of the game
+    /// @param house_data: The HouseData object
+    public fun game_risk<Asset>(game: &SuiletteGame<Asset>): u64 {
+        rm::total_risk(&game.risk_manager)
+    }
+
     /// Return the owner of an HouseCap
     public fun account_owner(house_cap: &HouseCap): address {
         house_cap.owner
@@ -225,7 +148,7 @@ module suilette::drand_based_roulette {
     }
 
     /// Set the max risk per game that the house can take
-    public entry fun set_max_risk_per_game<Asset>(house_cap: &HouseCap, house_data: &mut HouseData<Asset>, max_risk_per_game: u64, ctx: &mut TxContext) {
+    public entry fun set_max_risk_per_Suilettegame<Asset>(house_cap: &HouseCap, house_data: &mut HouseData<Asset>, max_risk_per_game: u64, ctx: &mut TxContext) {
         assert!(account_owner(house_cap) == tx_context::sender(ctx), ECallerNotHouse);
         house_data.max_risk_per_game = max_risk_per_game;
     }
@@ -237,7 +160,7 @@ module suilette::drand_based_roulette {
     public entry fun top_up<Asset>(house_data: &mut HouseData<Asset>, coin: Coin<Asset>) {        
         let coin_value = coin::value(&coin);
         let coin_balance = coin::into_balance(coin);
-        event::emit(HouseDeposit<Asset> { amount: coin_value });
+        events::emit_house_deposit<Asset>(coin_value);
         balance::join(&mut house_data.balance, coin_balance);
     }
 
@@ -246,7 +169,7 @@ module suilette::drand_based_roulette {
     public entry fun withdraw<Asset>(house_data: &mut HouseData<Asset>, quantity: u64, ctx: &mut TxContext) {
         // only the house address can withdraw funds
         assert!(tx_context::sender(ctx) == house_data.house, ECallerNotHouse);
-        event::emit(HouseWithdraw<Asset> { amount: quantity });
+        events::emit_house_withdraw<Asset>(quantity);
         let coin = coin::take(&mut house_data.balance, quantity, ctx);
         transfer::public_transfer(coin, house_data.house);
     }
@@ -262,43 +185,21 @@ module suilette::drand_based_roulette {
         assert!(account_owner(house_cap) == house_data.house, ECallerNotHouse);
 
         // Initialize the number_risk to be a vector of size 38, starting from 0.
-        let numbers_risk = vector<NumberRisk>[];
-        let idx = 0;
-        while(idx < 38) {
-            vec::push_back(&mut numbers_risk, NumberRisk { risk: 0 });
-            idx = idx + 1;
-        };
-
         let game_uid = object::new(ctx);
-        let game = RouletteGame<Asset> {
+        let game = SuiletteGame<Asset> {
             id: game_uid,
             owner: tx_context::sender(ctx), 
             round,
-            status: IN_PROGRESS,
+            status: status::in_progress(),
             bets: tvec::empty(ctx),
-            numbers_risk: numbers_risk,
-            total_risked: 0,
+            risk_manager: rm::new_manager(),
             result_roll: 0,
             min_bet: DEFAULT_MIN_BET,
             settled_bets_count: 0,
         };
         let game_id = *object::uid_as_inner(&game.id);
         transfer::public_share_object(game);
-        event::emit(GameCreated<Asset> { game_id });
-    }
-
-    // Returns 0 if nothing is in the vector, and max otherwise
-    public fun max_number_risk_vector(vect: &vector<NumberRisk>): u64 {
-        let idx = 0;
-        let current_max = 0;
-        while (idx < vec::length(vect)) {
-            let vect_num = vec::borrow(vect, idx);
-            if (vect_num.risk > current_max) {
-                current_max = vect_num.risk;
-            };
-            idx = idx + 1;
-        };
-        current_max
+        events::emit_game_created<Asset>(game_id);
     }
 
     /// Anyone can participate in the betting of the game, could consider allowing different bet sizes
@@ -307,41 +208,26 @@ module suilette::drand_based_roulette {
         coin: Coin<Asset>,
         bet_type: u8,
         bet_number: Option<u64>,
-        game: &mut RouletteGame<Asset>, 
+        game: &mut SuiletteGame<Asset>, 
         house_data: &mut HouseData<Asset>,
         ctx: &mut TxContext
     ) {
         // Assert that the bet type is valid and within the range of bets
         assert!(bet_type >= 0 && bet_type <= 12, EInvalidBetType);
-        let coin_value = coin::value(&coin);
-        let bet_payout = get_bet_payout(coin_value, bet_type);
-
-        // Assert that we provide a bet number for individual number bets
-        if (bet_type == NUMBER_BET) {
-            assert!(!option::is_none(&bet_number), EInvalidBet);
-            let target_bet_number = *option::borrow(&bet_number);
-            // For number bets grab current max numbers_risk from the vector
-            let current_max_number_bet = max_number_risk_vector(&game.numbers_risk);
-
-            // Update numbers_risk by borrowing the index of the bet number
-            let curr_number_risk = vec::borrow_mut(&mut game.numbers_risk, target_bet_number);
-            curr_number_risk.risk = curr_number_risk.risk + bet_payout;
-
-            // Update risk for number bets
-            if (curr_number_risk.risk > current_max_number_bet) {
-                house_data.house_risk = house_data.house_risk + curr_number_risk.risk - current_max_number_bet;
-                game.total_risked = game.total_risked + curr_number_risk.risk - current_max_number_bet;
-            }
-
-        } else {
-            // Update risk for other kinds of bets
-            house_data.house_risk = house_data.house_risk + bet_payout;
-            game.total_risked = game.total_risked + bet_payout;
+        if (bet_type == 2) {
+            assert!(option::is_some(&bet_number), EInvalidBetNumber);
+            assert!(*option::borrow(&bet_number) <= 37, EInvalidBetNumber);
         };
+        let coin_value = coin::value(&coin);
+        let bet_payout = bm::get_bet_payout(coin_value, bet_type);
+
+        // add risk
+        let risk_change = rm::add_risk(&mut game.risk_manager, bet_type, bet_number, bet_payout);
+        house_data.house_risk = house_data.house_risk + risk_change;
 
         assert!(house_risk(house_data) <= balance(house_data), EInsufficientHouseBalance);
-        assert!(game.total_risked <= house_data.max_risk_per_game, EInsufficientHouseBalance);
-        assert!(game.status == IN_PROGRESS, EGameNotInProgress);
+        assert!(rm::total_risk(&game.risk_manager) <= house_data.max_risk_per_game, EInsufficientHouseBalance);
+        assert!(game.status == status::in_progress(), EGameNotInProgress);
 
         // Check that the coin value is above the minimum bet
         assert!(coin_value >= game.min_bet, EInsufficientBalance);
@@ -358,24 +244,20 @@ module suilette::drand_based_roulette {
         };
         let bet_balance_value = balance::value(&new_bet.bet_size);
         let bet_id = *object::uid_as_inner(&new_bet.id);
-        event::emit(PlaceBet<Asset>{
-            bet_id,
-            bet_type: new_bet.bet_type,
-            bet_number: new_bet.bet_number,
-            bet_size: bet_balance_value,
-            player: new_bet.player
-        });
+        events::emit_place_bet<Asset>(
+            bet_id, new_bet.bet_type, new_bet.bet_number, bet_balance_value, new_bet.player,
+        );
 
         tvec::push_back(&mut game.bets, new_bet);
     }
 
     /// Anyone can close the game by providing the randomness of round - 1. 
-    public entry fun close<Asset>(game: &mut RouletteGame<Asset>, drand_sig: vector<u8>, drand_prev_sig: vector<u8>) {
-        assert!(game.status == IN_PROGRESS, EGameNotInProgress);
+    public entry fun close<Asset>(game: &mut SuiletteGame<Asset>, drand_sig: vector<u8>, drand_prev_sig: vector<u8>) {
+        assert!(game.status == status::in_progress(), EGameNotInProgress);
         verify_drand_signature(drand_sig, drand_prev_sig, closing_round(game.round));
-        game.status = CLOSED;
+        game.status = status::closed();
         let game_id = *object::uid_as_inner(&game.id);
-        event::emit(GameClosed<Asset> { game_id });
+        events::emit_game_closed<Asset>(game_id);
     }
 
     /// Anyone can complete the game by providing the randomness of round.
@@ -384,17 +266,16 @@ module suilette::drand_based_roulette {
     ///  `curl https://drand.cloudflare.com/8990e7a9aaed2ffed73dbd7092123d6f289930540d7651336225dc172e51b2ce/public/X'.
     /// TODO: update risks and remove bets
     public entry fun complete<Asset>(
-        game: &mut RouletteGame<Asset>, 
+        game: &mut SuiletteGame<Asset>, 
         house_cap: &HouseCap,        
         house_data: &mut HouseData<Asset>, 
         drand_sig: vector<u8>, 
         drand_prev_sig: vector<u8>,
-        // REVIEW: complete in pagination way
         cursor: u64,
         page_size: u64,
         ctx: &mut TxContext
     ) {
-        assert!(game.status != COMPLETED, EGameAlreadyCompleted);
+        assert!(game.status != status::completed(), EGameAlreadyCompleted);
         assert!(account_owner(house_cap) == tx_context::sender(ctx), ECallerNotHouse);
         verify_drand_signature(drand_sig, drand_prev_sig, game.round);
 
@@ -405,14 +286,12 @@ module suilette::drand_based_roulette {
         // 0 or 37 are both losses unless they picked a number
         let win_roll = safe_selection(38, &digest);
         game.result_roll = win_roll;
-        std::debug::print(&win_roll);
 
         let game_id = *object::uid_as_inner(&game.id);
 
         // Pay out the bets or claim the balance to house
         let bets = &mut game.bets;
         
-        // REVIEW: start from cursor, instead of starting from 0
         // let bet_index = 0;
         let bet_index = cursor;
         let end_index = cursor + page_size;
@@ -422,29 +301,19 @@ module suilette::drand_based_roulette {
         let bet_results = vector<BetResult<Asset>>[];
 
         // Deduct the house risk of the max number bet since we theoretically pay it off
-        if (game.status != IN_SETTLEMENT) {
-            let number_bet_risk = max_number_risk_vector(&game.numbers_risk);
-            house_data.house_risk = house_data.house_risk - number_bet_risk;
-        };
-        game.status = IN_SETTLEMENT;
+        game.status = status::in_settlement();
         
         while (bet_index < end_index) {
             let bet = tvec::borrow_mut(bets, bet_index);
             let player_bet = balance::value(&bet.bet_size);
-            // REVIEW: if bet is settled then skip it
             if (bet.is_settled) {
                 // Increment bet index
                 bet_index = bet_index + 1;
                 continue
             };
-            let bet_payout = get_bet_payout(player_bet, bet.bet_type);
-            // Deduct the house risk if its not a number bet
-            if (bet.bet_type != NUMBER_BET) {
-                house_data.house_risk = house_data.house_risk - bet_payout;
-            };
+            let bet_payout = bm::get_bet_payout(player_bet, bet.bet_type);
 
-            // Do number bets case first
-            if (won_bet(bet.bet_type, win_roll, bet.bet_number)) {
+            if (bm::won_bet(bet.bet_type, win_roll, bet.bet_number)) {
                 let house_payment = balance::split(&mut house_data.balance, bet_payout);
                 let player_coin = coin::take(&mut bet.bet_size, player_bet, ctx);
                 let player_bet_and_house_payment = coin::into_balance(player_coin);
@@ -458,14 +327,14 @@ module suilette::drand_based_roulette {
 
                 // Event emit for the bet results
                 let bet_id = *object::uid_as_inner(&bet.id);
-                let bet_result = BetResult<Asset> {
-                    bet_id: bet_id,
-                    is_win: true,
-                    bet_type: bet.bet_type,
-                    bet_number: bet.bet_number,
-                    bet_size: player_bet,
-                    player: bet.player,
-                };
+                let bet_result = events::new_bet_result(
+                    bet_id,
+                    true,
+                    bet.bet_type,
+                    bet.bet_number,
+                    player_bet,
+                    bet.player,
+                );
                 vec::push_back(&mut bet_results, bet_result);
 
             } else {
@@ -475,44 +344,39 @@ module suilette::drand_based_roulette {
 
                 // Event emit for the bet results
                 let bet_id = *object::uid_as_inner(&bet.id);
-                let bet_result = BetResult<Asset> {
-                    bet_id: bet_id,
-                    is_win: false,
-                    bet_type: bet.bet_type,
-                    bet_number: bet.bet_number,
-                    bet_size: player_bet,
-                    player: bet.player,
-                };
+                let bet_result = events::new_bet_result(
+                    bet_id,
+                    false,
+                    bet.bet_type,
+                    bet.bet_number,
+                    player_bet,
+                    bet.player,
+                );
                 vec::push_back(&mut bet_results, bet_result);
             };
             // Increment bet index
             bet_index = bet_index + 1;
-            // REVIEW: set bet settled and count it
             bet.is_settled = true;
             game.settled_bets_count = game.settled_bets_count + 1;
         };
 
-        // REVIEW: if all bets settled then mark the game completed
         if (game.settled_bets_count == bets_length) {
-            game.status = COMPLETED;            
+            game.status = status::completed();
+            house_data.house_risk = house_data.house_risk - rm::total_risk(&game.risk_manager);
         };
 
-        event::emit(GameCompleted<Asset> {
-            game_id,
-            result_roll: win_roll,
-            bet_results: bet_results,
-        });
-
+        events::emit_game_completed<Asset>(
+            game_id, win_roll, bet_results,
+        );
     }
 
     public entry fun refund_all_bets<Asset>(
         house_cap: &HouseCap,
-        game: &mut RouletteGame<Asset>,
-        // REVIEW: refund in pagination way
+        game: &mut SuiletteGame<Asset>,
         page_size: u64,
         ctx: &mut TxContext
     ) {
-        let RouletteGame<Asset> { id: _, owner: _, status: _, numbers_risk: _, total_risked: _, round: _, bets, result_roll: _, min_bet: _, settled_bets_count: _} = game;
+        let SuiletteGame<Asset> { id: _, owner: _, status: _, risk_manager: _, round: _, bets, result_roll: _, min_bet: _, settled_bets_count: _} = game;
         // Only owner can delete a game
         assert!(account_owner(house_cap) == tx_context::sender(ctx), ECallerNotHouse);
 
@@ -541,130 +405,6 @@ module suilette::drand_based_roulette {
     /// close the round 1 turn before
     fun closing_round(round: u64): u64 {
         round - 1
-    }
-        
-    /// Get the potential payout / loss of the bet This should cover all of the bets
-    public fun get_bet_payout(
-        coin_value: u64,
-        bet_type: u8,
-    ): u64 {
-        // red/black/odd/even/first_eighteen/second eighteen pays out 1-1
-        if (bet_type == RED_BET || bet_type == BLACK_BET || bet_type == EVEN_BET || bet_type == ODD_BET || bet_type == FIRST_EIGHTEEN || bet_type == SECOND_EIGHTEEN) {
-            return math::unsafe_mul(coin_value, 1_000_000_000)
-        };
-
-        // the twelve multiple bets pays out 2 - 1
-        if (bet_type == FIRST_TWELVE || bet_type == SECOND_TWELVE || bet_type == THIRD_TWELVE || bet_type == FIRST_COLUMN || bet_type == SECOND_COLUMN || bet_type == THIRD_COLUMN) {
-            return math::unsafe_mul(coin_value, 2_000_000_000)
-        };
-
-        // 35- 1 payout for a single number
-        if (bet_type == NUMBER_BET) {
-            return math::unsafe_mul(coin_value, 35_000_000_000)
-        };
-
-        (0)
-    }
-
-    public fun won_bet(bet_type: u8, result_roll: u64, bet_number: Option<u64>): bool {
-        // Number bet has won. Note that our board represents 0 as 0, and 00- as 37
-        if (bet_type == NUMBER_BET) {
-            return option::contains(&bet_number, &result_roll)
-        };
-
-        // Auto loss based on american roulette system
-        if (result_roll == 0 || result_roll == 37) {
-            return false
-        };
-
-        // Even numbers
-        if (bet_type == EVEN_BET) {
-            return (result_roll % 2) == 0
-        };
-
-        // Odd numbers
-        if (bet_type == ODD_BET) {
-            return (result_roll % 2) != 0
-        };
-
-        // red numbers (1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36)
-        if (bet_type == RED_BET) {
-            return 
-                (result_roll == 1 ||
-                result_roll == 3 ||
-                result_roll == 5 ||
-                result_roll == 7 ||
-                result_roll == 9 ||
-                result_roll == 12 ||
-                result_roll == 14 ||
-                result_roll == 16 ||
-                result_roll == 18 ||
-                result_roll == 19 ||
-                result_roll == 21 ||
-                result_roll == 23 ||
-                result_roll == 25 ||
-                result_roll == 27 ||
-                result_roll == 30 ||
-                result_roll == 32 ||
-                result_roll == 34 ||
-                result_roll == 36)
-        };
-
-        // blacks numbers (2,4,6,8,10,11,13,15,17,20,22,24,26,28,29,31,33,35)
-        if (bet_type == BLACK_BET) {
-            return 
-                (result_roll == 2 ||
-                result_roll == 4 ||
-                result_roll == 6 ||
-                result_roll == 8 ||
-                result_roll == 10 ||
-                result_roll == 11 ||
-                result_roll == 13 ||
-                result_roll == 15 ||
-                result_roll == 17 ||
-                result_roll == 20 ||
-                result_roll == 22 ||
-                result_roll == 24 ||
-                result_roll == 26 ||
-                result_roll == 28 ||
-                result_roll == 29 ||
-                result_roll == 31 ||
-                result_roll == 33 ||
-                result_roll == 35)
-        };
-
-        if (bet_type == FIRST_EIGHTEEN) {
-            return result_roll >= 1 && result_roll <= 18
-        };
-
-        if (bet_type == SECOND_EIGHTEEN) {
-            return result_roll >= 19 && result_roll <= 36
-        };
-
-        if (bet_type == FIRST_TWELVE) {
-            return result_roll >= 1 && result_roll <= 12
-        };
-
-        if (bet_type == SECOND_TWELVE) {
-            return result_roll >= 13 && result_roll <= 24
-        };
-
-        if (bet_type == THIRD_TWELVE) {
-            return result_roll >= 25 && result_roll <= 36
-        };
-
-        if (bet_type == FIRST_COLUMN) {
-            return (result_roll + 2) % 3 == 0
-        };
-
-        if (bet_type == SECOND_COLUMN) {
-            return (result_roll + 1) % 3 == 0
-        };
-
-        if (bet_type == THIRD_COLUMN) {
-            return result_roll % 3 == 0
-        };
-        false
     }
 
     #[test_only] use sui::coin::mint_for_testing;
@@ -751,7 +491,7 @@ module suilette::drand_based_roulette {
         test_scenario::next_tx(&mut test, player);
         {
             // Get the game
-            let roulette_game = test_scenario::take_shared<RouletteGame<SUI>>(&mut test);
+            let roulette_game = test_scenario::take_shared<SuiletteGame<SUI>>(&mut test);
             let house_data = test_scenario::take_shared<HouseData<SUI>>(&mut test);
 
             // Place a bet on red
@@ -769,14 +509,13 @@ module suilette::drand_based_roulette {
             test_scenario::next_tx(&mut test, house);
         {
             // Get the game
-            let roulette_game = test_scenario::take_shared<RouletteGame<SUI>>(&mut test);
+            let roulette_game = test_scenario::take_shared<SuiletteGame<SUI>>(&mut test);
             let house_data = test_scenario::take_shared<HouseData<SUI>>(&mut test);
             let house_cap = test_scenario::take_from_address<HouseCap>(&test, house);
 
             let drand_sig = x"ad11b336ad8ca2fefeb75dfa9a7de842ac139c7c199f2e73e118c82b8919ceec27b1066724382d6a6571a0d129be9e7413873cd629720063e6b5147aab5836f076ea30a1bb142f50ed99074d206a78efb9e0091152c73dcfffdfd4927bbb88a4";
             let drand_previous_sig = x"a62f85451dbe80351a3a847f660fe987a5c518b97c0e00cdfef9b4050fc44d29a3a557285413970d492f3acb903d8c720cee37873c8ffab3d64edaa546b59233bdeeb6990aea76989c3c6f10312be62ece9706fca1f40d946fe066c4929c1ac3";
 
-            // REVIEW: use pagination way to complete
             complete<SUI>(&mut roulette_game, &house_cap, &mut house_data, drand_sig, drand_previous_sig, 0, 10, test_scenario::ctx(&mut test));
 
             test_scenario::return_shared(house_data);
@@ -801,7 +540,7 @@ module suilette::drand_based_roulette {
         test_scenario::next_tx(&mut test, player);
         {
             // Get the game
-            let roulette_game = test_scenario::take_shared<RouletteGame<SUI>>(&mut test);
+            let roulette_game = test_scenario::take_shared<SuiletteGame<SUI>>(&mut test);
             let house_data = test_scenario::take_shared<HouseData<SUI>>(&mut test);
 
             // Place a bet on 2
@@ -827,52 +566,47 @@ module suilette::drand_based_roulette {
             test_scenario::return_shared(house_data);
             test_scenario::return_shared(roulette_game);
         };
-        // REVIEW: complete first page and check the game status
         test_scenario::next_tx(&mut test, house);
         {
             // Get the game
-            let roulette_game = test_scenario::take_shared<RouletteGame<SUI>>(&mut test);
+            let roulette_game = test_scenario::take_shared<SuiletteGame<SUI>>(&mut test);
             let house_data = test_scenario::take_shared<HouseData<SUI>>(&mut test);
             let house_cap = test_scenario::take_from_address<HouseCap>(&test, house);
 
             let drand_sig = x"ad11b336ad8ca2fefeb75dfa9a7de842ac139c7c199f2e73e118c82b8919ceec27b1066724382d6a6571a0d129be9e7413873cd629720063e6b5147aab5836f076ea30a1bb142f50ed99074d206a78efb9e0091152c73dcfffdfd4927bbb88a4";
             let drand_previous_sig = x"a62f85451dbe80351a3a847f660fe987a5c518b97c0e00cdfef9b4050fc44d29a3a557285413970d492f3acb903d8c720cee37873c8ffab3d64edaa546b59233bdeeb6990aea76989c3c6f10312be62ece9706fca1f40d946fe066c4929c1ac3";
 
-            // REVIEW: use pagination way to complete
-            assert!(roulette_game.status == IN_PROGRESS, 0);
+            assert!(roulette_game.status == status::in_progress(), 0);
             complete<SUI>(&mut roulette_game, &house_cap, &mut house_data, drand_sig, drand_previous_sig, 0, 1, test_scenario::ctx(&mut test));
 
             test_scenario::return_shared(house_data);
             test_scenario::return_to_address<HouseCap>(house, house_cap);
             test_scenario::return_shared(roulette_game);
         };
-        // REVIEW: complete second page and check the game status
         test_scenario::next_tx(&mut test, house);
         {
             // Get the game
-            let roulette_game = test_scenario::take_shared<RouletteGame<SUI>>(&mut test);
+            let roulette_game = test_scenario::take_shared<SuiletteGame<SUI>>(&mut test);
             let house_data = test_scenario::take_shared<HouseData<SUI>>(&mut test);
             let house_cap = test_scenario::take_from_address<HouseCap>(&test, house);
 
             let drand_sig = x"ad11b336ad8ca2fefeb75dfa9a7de842ac139c7c199f2e73e118c82b8919ceec27b1066724382d6a6571a0d129be9e7413873cd629720063e6b5147aab5836f076ea30a1bb142f50ed99074d206a78efb9e0091152c73dcfffdfd4927bbb88a4";
             let drand_previous_sig = x"a62f85451dbe80351a3a847f660fe987a5c518b97c0e00cdfef9b4050fc44d29a3a557285413970d492f3acb903d8c720cee37873c8ffab3d64edaa546b59233bdeeb6990aea76989c3c6f10312be62ece9706fca1f40d946fe066c4929c1ac3";
 
-            // REVIEW: use pagination way to complete
-            assert!(roulette_game.status == IN_SETTLEMENT, 0);
+            assert!(roulette_game.status == status::in_settlement(), 0);
             complete<SUI>(&mut roulette_game, &house_cap, &mut house_data, drand_sig, drand_previous_sig, 1, 1, test_scenario::ctx(&mut test));
 
             test_scenario::return_shared(house_data);
             test_scenario::return_to_address<HouseCap>(house, house_cap);
             test_scenario::return_shared(roulette_game);
         };
-        // REVIEW: check the game status
         test_scenario::next_tx(&mut test, player);
         {
             // Check that the house gained the bet that the player made
             let house_data = test_scenario::take_shared<HouseData<SUI>>(&mut test);
-            let roulette_game = test_scenario::take_shared<RouletteGame<SUI>>(&mut test);
+            let roulette_game = test_scenario::take_shared<SuiletteGame<SUI>>(&mut test);
             // sui::test_utils::assert_eq(balance::value(&house_data.balance), 105 * 1000000000);
-            assert!(roulette_game.status == COMPLETED, 0);
+            assert!(roulette_game.status == status::completed(), 0);
             test_scenario::return_shared(house_data);
             test_scenario::return_shared(roulette_game);
         };
@@ -887,7 +621,7 @@ module suilette::drand_based_roulette {
         test_scenario::next_tx(&mut test, player);
         {
             // Get the game
-            let roulette_game = test_scenario::take_shared<RouletteGame<SUI>>(&mut test);
+            let roulette_game = test_scenario::take_shared<SuiletteGame<SUI>>(&mut test);
             let house_data = test_scenario::take_shared<HouseData<SUI>>(&mut test);
 
             // Place a bet on 2
@@ -916,7 +650,7 @@ module suilette::drand_based_roulette {
         test_scenario::next_tx(&mut test, house);
         {
             // Get the game
-            let roulette_game = test_scenario::take_shared<RouletteGame<SUI>>(&mut test);
+            let roulette_game = test_scenario::take_shared<SuiletteGame<SUI>>(&mut test);
             let house_cap = test_scenario::take_from_address<HouseCap>(&test, house);
 
             // Delete
@@ -933,7 +667,7 @@ module suilette::drand_based_roulette {
         test_scenario::next_tx(&mut test, house);
         {
             // Get the game
-            let roulette_game = test_scenario::take_shared<RouletteGame<SUI>>(&mut test);
+            let roulette_game = test_scenario::take_shared<SuiletteGame<SUI>>(&mut test);
             let house_cap = test_scenario::take_from_address<HouseCap>(&test, house);
 
             // Delete
@@ -958,28 +692,27 @@ module suilette::drand_based_roulette {
     }
 
     #[test_only]
-        public entry fun complete_for_testing<Asset>(
-        game: &mut RouletteGame<Asset>, 
+    public entry fun complete_for_testing<Asset>(
+        game: &mut SuiletteGame<Asset>, 
         house_cap: &HouseCap,        
         house_data: &mut HouseData<Asset>, 
-        result_roll: u64,
-        // REVIEW: complete in pagination way
+        win_roll: u64,
         cursor: u64,
         page_size: u64,
         ctx: &mut TxContext
     ) {
-        assert!(game.status != COMPLETED, EGameAlreadyCompleted);
+        assert!(game.status != status::completed(), EGameAlreadyCompleted);
         assert!(account_owner(house_cap) == tx_context::sender(ctx), ECallerNotHouse);
 
         // We accept some small amount of bias with safe selection
         // 0 or 37 are both losses unless they picked a number
-        game.result_roll = result_roll;
-        // std::debug::print(&win_roll);
+        game.result_roll = win_roll;
+
+        let game_id = *object::uid_as_inner(&game.id);
 
         // Pay out the bets or claim the balance to house
         let bets = &mut game.bets;
         
-        // REVIEW: start from cursor, instead of starting from 0
         // let bet_index = 0;
         let bet_index = cursor;
         let end_index = cursor + page_size;
@@ -989,29 +722,19 @@ module suilette::drand_based_roulette {
         let bet_results = vector<BetResult<Asset>>[];
 
         // Deduct the house risk of the max number bet since we theoretically pay it off
-        if (game.status != IN_SETTLEMENT) {
-            let number_bet_risk = max_number_risk_vector(&game.numbers_risk);
-            house_data.house_risk = house_data.house_risk - number_bet_risk;
-        };
-        game.status = IN_SETTLEMENT;
+        game.status = status::in_settlement();
         
         while (bet_index < end_index) {
             let bet = tvec::borrow_mut(bets, bet_index);
             let player_bet = balance::value(&bet.bet_size);
-            // REVIEW: if bet is settled then skip it
             if (bet.is_settled) {
                 // Increment bet index
                 bet_index = bet_index + 1;
                 continue
             };
-            let bet_payout = get_bet_payout(player_bet, bet.bet_type);
-            // Deduct the house risk if its not a number bet
-            if (bet.bet_type != NUMBER_BET) {
-                house_data.house_risk = house_data.house_risk - bet_payout;
-            };
+            let bet_payout = bm::get_bet_payout(player_bet, bet.bet_type);
 
-            // Do number bets case first
-            if (won_bet(bet.bet_type, result_roll, bet.bet_number)) {
+            if (bm::won_bet(bet.bet_type, win_roll, bet.bet_number)) {
                 let house_payment = balance::split(&mut house_data.balance, bet_payout);
                 let player_coin = coin::take(&mut bet.bet_size, player_bet, ctx);
                 let player_bet_and_house_payment = coin::into_balance(player_coin);
@@ -1025,14 +748,14 @@ module suilette::drand_based_roulette {
 
                 // Event emit for the bet results
                 let bet_id = *object::uid_as_inner(&bet.id);
-                let bet_result = BetResult<Asset> {
-                    bet_id: bet_id,
-                    is_win: true,
-                    bet_type: bet.bet_type,
-                    bet_number: bet.bet_number,
-                    bet_size: player_bet,
-                    player: bet.player,
-                };
+                let bet_result = events::new_bet_result(
+                    bet_id,
+                    true,
+                    bet.bet_type,
+                    bet.bet_number,
+                    player_bet,
+                    bet.player,
+                );
                 vec::push_back(&mut bet_results, bet_result);
 
             } else {
@@ -1042,26 +765,34 @@ module suilette::drand_based_roulette {
 
                 // Event emit for the bet results
                 let bet_id = *object::uid_as_inner(&bet.id);
-                let bet_result = BetResult<Asset> {
-                    bet_id: bet_id,
-                    is_win: false,
-                    bet_type: bet.bet_type,
-                    bet_number: bet.bet_number,
-                    bet_size: player_bet,
-                    player: bet.player,
-                };
+                let bet_result = events::new_bet_result(
+                    bet_id,
+                    false,
+                    bet.bet_type,
+                    bet.bet_number,
+                    player_bet,
+                    bet.player,
+                );
                 vec::push_back(&mut bet_results, bet_result);
             };
             // Increment bet index
             bet_index = bet_index + 1;
-            // REVIEW: set bet settled and count it
             bet.is_settled = true;
             game.settled_bets_count = game.settled_bets_count + 1;
         };
 
-        // REVIEW: if all bets settled then mark the game completed
         if (game.settled_bets_count == bets_length) {
-            game.status = COMPLETED;            
+            game.status = status::completed();
+            house_data.house_risk = house_data.house_risk - rm::total_risk(&game.risk_manager);
         };
+
+        events::emit_game_completed<Asset>(
+            game_id, win_roll, bet_results,
+        );
+    }
+
+    #[test_only]
+    public fun risk_manager<Asset>(game: &SuiletteGame<Asset>): &RiskManager {
+        &game.risk_manager
     }
 }
