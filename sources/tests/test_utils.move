@@ -48,7 +48,7 @@ module suilette::init_tool {
 
     use sui::coin;
     use sui::test_scenario::{Self as ts, Scenario};
-    use suilette::suilette_game::{Self as sgame, HouseData, HouseCap};
+    use suilette::drand_based_roulette::{Self as sgame, HouseData, HouseCap};
 
     const HOUSE: address = @0xAAAA;
 

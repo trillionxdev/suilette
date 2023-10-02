@@ -1,5 +1,5 @@
 /// A sui based implementation of roulette with american roulette edge
-module suilette::suilette_game {
+module suilette::drand_based_roulette {
 
     use std::vector::{Self as vec};
     use std::option::{Self, Option};
@@ -52,7 +52,7 @@ module suilette::suilette_game {
         owner: address,
     }
 
-    struct SuiletteGame<phantom Asset> has key, store {
+    struct RouletteGame<phantom Asset> has key, store {
         id: UID,
         owner: address,
         status: u8,
@@ -112,7 +112,7 @@ module suilette::suilette_game {
 
     /// Returns the risk of the game
     /// @param house_data: The HouseData object
-    public fun game_risk<Asset>(game: &SuiletteGame<Asset>): u64 {
+    public fun game_risk<Asset>(game: &RouletteGame<Asset>): u64 {
         rm::total_risk(&game.risk_manager)
     }
 
@@ -148,7 +148,7 @@ module suilette::suilette_game {
     }
 
     /// Set the max risk per game that the house can take
-    public entry fun set_max_risk_per_Suilettegame<Asset>(house_cap: &HouseCap, house_data: &mut HouseData<Asset>, max_risk_per_game: u64, ctx: &mut TxContext) {
+    public entry fun set_max_risk_per_game<Asset>(house_cap: &HouseCap, house_data: &mut HouseData<Asset>, max_risk_per_game: u64, ctx: &mut TxContext) {
         assert!(account_owner(house_cap) == tx_context::sender(ctx), ECallerNotHouse);
         house_data.max_risk_per_game = max_risk_per_game;
     }
@@ -186,7 +186,7 @@ module suilette::suilette_game {
 
         // Initialize the number_risk to be a vector of size 38, starting from 0.
         let game_uid = object::new(ctx);
-        let game = SuiletteGame<Asset> {
+        let game = RouletteGame<Asset> {
             id: game_uid,
             owner: tx_context::sender(ctx), 
             round,
@@ -208,7 +208,7 @@ module suilette::suilette_game {
         coin: Coin<Asset>,
         bet_type: u8,
         bet_number: Option<u64>,
-        game: &mut SuiletteGame<Asset>, 
+        game: &mut RouletteGame<Asset>, 
         house_data: &mut HouseData<Asset>,
         ctx: &mut TxContext
     ) {
@@ -252,7 +252,7 @@ module suilette::suilette_game {
     }
 
     /// Anyone can close the game by providing the randomness of round - 1. 
-    public entry fun close<Asset>(game: &mut SuiletteGame<Asset>, drand_sig: vector<u8>, drand_prev_sig: vector<u8>) {
+    public entry fun close<Asset>(game: &mut RouletteGame<Asset>, drand_sig: vector<u8>, drand_prev_sig: vector<u8>) {
         assert!(game.status == status::in_progress(), EGameNotInProgress);
         verify_drand_signature(drand_sig, drand_prev_sig, closing_round(game.round));
         game.status = status::closed();
@@ -266,7 +266,7 @@ module suilette::suilette_game {
     ///  `curl https://drand.cloudflare.com/8990e7a9aaed2ffed73dbd7092123d6f289930540d7651336225dc172e51b2ce/public/X'.
     /// TODO: update risks and remove bets
     public entry fun complete<Asset>(
-        game: &mut SuiletteGame<Asset>, 
+        game: &mut RouletteGame<Asset>, 
         house_cap: &HouseCap,        
         house_data: &mut HouseData<Asset>, 
         drand_sig: vector<u8>, 
@@ -372,11 +372,11 @@ module suilette::suilette_game {
 
     public entry fun refund_all_bets<Asset>(
         house_cap: &HouseCap,
-        game: &mut SuiletteGame<Asset>,
+        game: &mut RouletteGame<Asset>,
         page_size: u64,
         ctx: &mut TxContext
     ) {
-        let SuiletteGame<Asset> { id: _, owner: _, status: _, risk_manager: _, round: _, bets, result_roll: _, min_bet: _, settled_bets_count: _} = game;
+        let RouletteGame<Asset> { id: _, owner: _, status: _, risk_manager: _, round: _, bets, result_roll: _, min_bet: _, settled_bets_count: _} = game;
         // Only owner can delete a game
         assert!(account_owner(house_cap) == tx_context::sender(ctx), ECallerNotHouse);
 
@@ -491,7 +491,7 @@ module suilette::suilette_game {
         test_scenario::next_tx(&mut test, player);
         {
             // Get the game
-            let roulette_game = test_scenario::take_shared<SuiletteGame<SUI>>(&mut test);
+            let roulette_game = test_scenario::take_shared<RouletteGame<SUI>>(&mut test);
             let house_data = test_scenario::take_shared<HouseData<SUI>>(&mut test);
 
             // Place a bet on red
@@ -509,7 +509,7 @@ module suilette::suilette_game {
             test_scenario::next_tx(&mut test, house);
         {
             // Get the game
-            let roulette_game = test_scenario::take_shared<SuiletteGame<SUI>>(&mut test);
+            let roulette_game = test_scenario::take_shared<RouletteGame<SUI>>(&mut test);
             let house_data = test_scenario::take_shared<HouseData<SUI>>(&mut test);
             let house_cap = test_scenario::take_from_address<HouseCap>(&test, house);
 
@@ -540,7 +540,7 @@ module suilette::suilette_game {
         test_scenario::next_tx(&mut test, player);
         {
             // Get the game
-            let roulette_game = test_scenario::take_shared<SuiletteGame<SUI>>(&mut test);
+            let roulette_game = test_scenario::take_shared<RouletteGame<SUI>>(&mut test);
             let house_data = test_scenario::take_shared<HouseData<SUI>>(&mut test);
 
             // Place a bet on 2
@@ -569,7 +569,7 @@ module suilette::suilette_game {
         test_scenario::next_tx(&mut test, house);
         {
             // Get the game
-            let roulette_game = test_scenario::take_shared<SuiletteGame<SUI>>(&mut test);
+            let roulette_game = test_scenario::take_shared<RouletteGame<SUI>>(&mut test);
             let house_data = test_scenario::take_shared<HouseData<SUI>>(&mut test);
             let house_cap = test_scenario::take_from_address<HouseCap>(&test, house);
 
@@ -586,7 +586,7 @@ module suilette::suilette_game {
         test_scenario::next_tx(&mut test, house);
         {
             // Get the game
-            let roulette_game = test_scenario::take_shared<SuiletteGame<SUI>>(&mut test);
+            let roulette_game = test_scenario::take_shared<RouletteGame<SUI>>(&mut test);
             let house_data = test_scenario::take_shared<HouseData<SUI>>(&mut test);
             let house_cap = test_scenario::take_from_address<HouseCap>(&test, house);
 
@@ -604,7 +604,7 @@ module suilette::suilette_game {
         {
             // Check that the house gained the bet that the player made
             let house_data = test_scenario::take_shared<HouseData<SUI>>(&mut test);
-            let roulette_game = test_scenario::take_shared<SuiletteGame<SUI>>(&mut test);
+            let roulette_game = test_scenario::take_shared<RouletteGame<SUI>>(&mut test);
             // sui::test_utils::assert_eq(balance::value(&house_data.balance), 105 * 1000000000);
             assert!(roulette_game.status == status::completed(), 0);
             test_scenario::return_shared(house_data);
@@ -621,7 +621,7 @@ module suilette::suilette_game {
         test_scenario::next_tx(&mut test, player);
         {
             // Get the game
-            let roulette_game = test_scenario::take_shared<SuiletteGame<SUI>>(&mut test);
+            let roulette_game = test_scenario::take_shared<RouletteGame<SUI>>(&mut test);
             let house_data = test_scenario::take_shared<HouseData<SUI>>(&mut test);
 
             // Place a bet on 2
@@ -650,7 +650,7 @@ module suilette::suilette_game {
         test_scenario::next_tx(&mut test, house);
         {
             // Get the game
-            let roulette_game = test_scenario::take_shared<SuiletteGame<SUI>>(&mut test);
+            let roulette_game = test_scenario::take_shared<RouletteGame<SUI>>(&mut test);
             let house_cap = test_scenario::take_from_address<HouseCap>(&test, house);
 
             // Delete
@@ -667,7 +667,7 @@ module suilette::suilette_game {
         test_scenario::next_tx(&mut test, house);
         {
             // Get the game
-            let roulette_game = test_scenario::take_shared<SuiletteGame<SUI>>(&mut test);
+            let roulette_game = test_scenario::take_shared<RouletteGame<SUI>>(&mut test);
             let house_cap = test_scenario::take_from_address<HouseCap>(&test, house);
 
             // Delete
@@ -693,7 +693,7 @@ module suilette::suilette_game {
 
     #[test_only]
     public entry fun complete_for_testing<Asset>(
-        game: &mut SuiletteGame<Asset>, 
+        game: &mut RouletteGame<Asset>, 
         house_cap: &HouseCap,        
         house_data: &mut HouseData<Asset>, 
         win_roll: u64,
@@ -792,7 +792,7 @@ module suilette::suilette_game {
     }
 
     #[test_only]
-    public fun risk_manager<Asset>(game: &SuiletteGame<Asset>): &RiskManager {
+    public fun risk_manager<Asset>(game: &RouletteGame<Asset>): &RiskManager {
         &game.risk_manager
     }
 }

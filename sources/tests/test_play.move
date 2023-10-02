@@ -6,7 +6,7 @@ module suilette::test_play {
     use sui::sui::SUI;
     use sui::coin::{Self, Coin};
     use sui::test_scenario as ts;
-    use suilette::suilette_game::{Self as sgame, HouseData, SuiletteGame, HouseCap};
+    use suilette::drand_based_roulette::{Self as sgame, HouseData, RouletteGame, HouseCap};
     use suilette::player_generator as pg;
     use suilette::bet_manager as bm;
     use suilette::init_tool::{Self, house};
@@ -18,7 +18,7 @@ module suilette::test_play {
         let init_house_balance = 5_000_000_000_000;
         init_tool::setup_house_for_test<SUI>(scenario, init_house_balance);
         let pgs = &mut pg::new(
-            b"Suilette x Bucket",
+            b"Suilette",
             1_000_000_000,
             10_000_000_000,
         );
@@ -50,7 +50,7 @@ module suilette::test_play {
                 let bet_size = coin::value(&bet);
                 ts::next_tx(scenario, player);
                 {
-                    let game = ts::take_shared<SuiletteGame<SUI>>(scenario);
+                    let game = ts::take_shared<RouletteGame<SUI>>(scenario);
                     let house_data = ts::take_shared<HouseData<SUI>>(scenario);
 
                     sgame::place_bet(bet, bet_type, bet_number, &mut game, &mut house_data, ts::ctx(scenario));
@@ -68,7 +68,7 @@ module suilette::test_play {
 
             ts::next_tx(scenario, house());
             {
-                let game = ts::take_shared<SuiletteGame<SUI>>(scenario);
+                let game = ts::take_shared<RouletteGame<SUI>>(scenario);
                 // std::debug::print(sgame::risk_manager(&game));
                 let house_data = ts::take_shared<HouseData<SUI>>(scenario);
                 let house_cap = ts::take_from_sender<HouseCap>(scenario);
@@ -94,7 +94,7 @@ module suilette::test_play {
 
             ts::next_tx(scenario, house());
             {
-                let game = ts::take_shared<SuiletteGame<SUI>>(scenario);
+                let game = ts::take_shared<RouletteGame<SUI>>(scenario);
                 let house_data = ts::take_shared<HouseData<SUI>>(scenario);
                 let house_cap = ts::take_from_sender<HouseCap>(scenario);
 

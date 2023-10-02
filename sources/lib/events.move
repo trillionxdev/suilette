@@ -4,7 +4,7 @@ module suilette::events {
     use sui::object::ID;
     use sui::event::emit;
 
-    friend suilette::suilette_game;
+    friend suilette::drand_based_roulette;
 
     /// Event for placed bets
     struct PlaceBet<phantom T> has copy, store, drop {
