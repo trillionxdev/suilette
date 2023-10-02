@@ -2,7 +2,7 @@
 module suilette::test_play {
 
     use std::vector;
-    use std::option::Option;
+    use std::option::{Self, Option};
     use sui::sui::SUI;
     use sui::coin::{Self, Coin};
     use sui::test_scenario as ts;
@@ -53,7 +53,7 @@ module suilette::test_play {
                     let game = ts::take_shared<RouletteGame<SUI>>(scenario);
                     let house_data = ts::take_shared<HouseData<SUI>>(scenario);
 
-                    sgame::place_bet(bet, bet_type, bet_number, &mut game, &mut house_data, ts::ctx(scenario));
+                    sgame::place_bet(bet, bet_type, bet_number, &mut game, &mut house_data, option::none(), option::none(), option::none(), ts::ctx(scenario));
                     vector::push_back(&mut players, player);
                     vector::push_back(&mut player_bet_sizes, bet_size);
                     vector::push_back(&mut player_bet_types, bet_type);

@@ -3,7 +3,8 @@ module suilette::drand_based_roulette {
 
     use std::vector::{Self as vec};
     use std::option::{Self, Option};
-    use sui::object::{Self, UID};
+    use std::string::String;
+    use sui::object::{Self, UID, ID};
     use sui::balance::{Self, Balance};
     use sui::transfer;
     use sui::coin::{Self, Coin};
@@ -35,6 +36,9 @@ module suilette::drand_based_roulette {
         bet_size: Balance<Asset>,
         player: address,
         is_settled: bool,
+        name: Option<String>,
+        avatar: Option<ID>,
+        image_url: Option<String>,
     }
 
     struct HouseData<phantom Asset> has key {
@@ -210,6 +214,9 @@ module suilette::drand_based_roulette {
         bet_number: Option<u64>,
         game: &mut RouletteGame<Asset>, 
         house_data: &mut HouseData<Asset>,
+        name: Option<String>,
+        avatar: Option<ID>,
+        image_url: Option<String>,
         ctx: &mut TxContext
     ) {
         // Assert that the bet type is valid and within the range of bets
@@ -241,6 +248,9 @@ module suilette::drand_based_roulette {
             bet_size,
             player: tx_context::sender(ctx),
             is_settled: false,
+            name,
+            avatar,
+            image_url,
         };
         let bet_balance_value = balance::value(&new_bet.bet_size);
         let bet_id = *object::uid_as_inner(&new_bet.id);
@@ -392,7 +402,7 @@ module suilette::drand_based_roulette {
     }
  
     fun delete_bet<Asset>(bet: Bet<Asset>, ctx: &mut TxContext) {
-        let Bet<Asset> { id, bet_type: _, bet_number: _, bet_size, player, is_settled: _} = bet;
+        let Bet<Asset> { id, bet_type: _, bet_number: _, bet_size, player, is_settled: _, name: _, avatar: _, image_url: _} = bet;
         let player_bet = balance::value(&bet_size);
         if (player_bet > 0) {
             let player_coin = coin::take(&mut bet_size, player_bet, ctx);
@@ -501,7 +511,10 @@ module suilette::drand_based_roulette {
                 option::none<u64>(),
                 &mut roulette_game,
                 &mut house_data,
-                test_scenario::ctx(&mut test)
+                option::none(),
+                option::none(),
+                option::none(),
+                test_scenario::ctx(&mut test),
             );
             test_scenario::return_shared(house_data);
             test_scenario::return_shared(roulette_game);
@@ -550,6 +563,9 @@ module suilette::drand_based_roulette {
                 option::some<u64>(2),
                 &mut roulette_game,
                 &mut house_data,
+                option::none(),
+                option::none(),
+                option::none(),
                 test_scenario::ctx(&mut test)
             );
 
@@ -560,6 +576,9 @@ module suilette::drand_based_roulette {
                 option::some<u64>(4),
                 &mut roulette_game,
                 &mut house_data,
+                option::none(),
+                option::none(),
+                option::none(),
                 test_scenario::ctx(&mut test)
             );
 
@@ -631,6 +650,9 @@ module suilette::drand_based_roulette {
                 option::some<u64>(2),
                 &mut roulette_game,
                 &mut house_data,
+                option::none(),
+                option::none(),
+                option::none(),
                 test_scenario::ctx(&mut test)
             );
 
@@ -641,6 +663,9 @@ module suilette::drand_based_roulette {
                 option::some<u64>(4),
                 &mut roulette_game,
                 &mut house_data,
+                option::none(),
+                option::none(),
+                option::none(),
                 test_scenario::ctx(&mut test)
             );
 
