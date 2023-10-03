@@ -17,6 +17,7 @@ module suilette::drand_based_roulette {
     use suilette::game_status::{Self as status};
     use suilette::risk_manager::{Self as rm, RiskManager};
     use suilette::bet_manager::{Self as bm};
+    use suilette::rebate_manager::{Self as rem, RebateManager};
 
     /// Error codes
     const EGameNotInProgress: u64 = 0;
@@ -29,6 +30,8 @@ module suilette::drand_based_roulette {
 
     // 1 SUI is the default min bet
     const DEFAULT_MIN_BET: u64 = 1000000000;
+    const DEFAULT_PLAYER_REBATE_RATE: u64 = 5_000_000; // 0.5%
+    const DEFAULT_REFERRER_REBATE_RATE: u64 = 5_000_000; // 0.5%
 
     struct Bet<phantom Asset> has key, store {
         id: UID,
@@ -48,6 +51,7 @@ module suilette::drand_based_roulette {
         house: address,
         house_risk: u64,
         max_risk_per_game: u64,
+        rebate_manager: RebateManager,
     }
 
     struct HouseCap has key, store {
@@ -147,6 +151,7 @@ module suilette::drand_based_roulette {
             house_risk: 0,
             // We just initialize to 1k Sui a game
             max_risk_per_game: 1000 * 1000000000,
+            rebate_manager: rem::new(DEFAULT_PLAYER_REBATE_RATE, DEFAULT_REFERRER_REBATE_RATE, ctx),
         };
 
         // init function to create the game
@@ -271,6 +276,9 @@ module suilette::drand_based_roulette {
         } else {
             table::add(player_bets_table, player, vec::singleton(bet_id));
         };
+
+        // add volume
+        rem::add_volume(&mut house_data.rebate_manager, player, coin_value);
     }
 
     /// Anyone can close the game by providing the randomness of round - 1. 
@@ -415,7 +423,7 @@ module suilette::drand_based_roulette {
             counter = counter + 1;
         };
     }
- 
+
     fun delete_bet<Asset>(bet: Bet<Asset>, ctx: &mut TxContext): address {
         let Bet<Asset> { id, bet_type: _, bet_number: _, bet_size, player, is_settled: _, name: _, avatar: _, image_url: _} = bet;
         let player_bet = balance::value(&bet_size);
@@ -431,6 +439,40 @@ module suilette::drand_based_roulette {
     /// close the round 1 turn before
     fun closing_round(round: u64): u64 {
         round - 1
+    }
+
+    /// Rebate & Referral
+    public fun set_referrer<Asset>(
+        house: &mut HouseData<Asset>,
+        referrer: address,
+        ctx: &TxContext,
+    ) {
+        let player = tx_context::sender(ctx);
+        rem::register(&mut house.rebate_manager, player, option::some(referrer));
+    }
+
+    public fun claim_rebate<Asset>(
+        house: &mut HouseData<Asset>,
+        ctx: &mut TxContext,
+    ) {
+        let player = tx_context::sender(ctx);
+        let (
+            player_rebate_amount,
+            referrer,
+            referrer_rebate_amount
+        ) = rem::claim_rebate(&mut house.rebate_manager, player);
+        if (player_rebate_amount > 0) {
+            transfer::public_transfer(
+                coin::take(&mut house.balance, player_rebate_amount, ctx),
+                player,
+            );
+        };
+        if (option::is_some(&referrer) && referrer_rebate_amount > 0) {
+            transfer::public_transfer(
+                coin::take(&mut house.balance, player_rebate_amount, ctx),
+                option::destroy_some(referrer),
+            );
+        };
     }
 
     #[test_only] use sui::coin::mint_for_testing;
