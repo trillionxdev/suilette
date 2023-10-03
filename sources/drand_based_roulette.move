@@ -9,8 +9,9 @@ module suilette::drand_based_roulette {
     use sui::transfer;
     use sui::coin::{Self, Coin};
     use sui::tx_context::{Self, TxContext};
-    use sui::table_vec::{Self as tvec, TableVec};
+    use sui::table::{Self, Table};
 
+    use suilette::object_table_vec::{Self as tvec, ObjectTableVec};
     use suilette::drand_lib::{derive_randomness, verify_drand_signature, safe_selection};
     use suilette::events::{Self, BetResult};
     use suilette::game_status::{Self as status};
@@ -61,11 +62,12 @@ module suilette::drand_based_roulette {
         owner: address,
         status: u8,
         round: u64,
-        bets: TableVec<Bet<Asset>>,
+        bets: ObjectTableVec<Bet<Asset>>,
         risk_manager: RiskManager,
         result_roll: u64,
         min_bet: u64,
         settled_bets_count: u64,
+        player_bets_table: Table<address, vector<ID>>,
     }
 
     // Constructor
@@ -200,6 +202,7 @@ module suilette::drand_based_roulette {
             result_roll: 0,
             min_bet: DEFAULT_MIN_BET,
             settled_bets_count: 0,
+            player_bets_table: table::new(ctx),
         };
         let game_id = *object::uid_as_inner(&game.id);
         transfer::public_share_object(game);
@@ -240,13 +243,14 @@ module suilette::drand_based_roulette {
         assert!(coin_value >= game.min_bet, EInsufficientBalance);
 
         let bet_size = coin::into_balance(coin);
+        let player = tx_context::sender(ctx);
 
         let new_bet = Bet {
             id: object::new(ctx),
             bet_type,
             bet_number,
             bet_size,
-            player: tx_context::sender(ctx),
+            player,
             is_settled: false,
             name,
             avatar,
@@ -259,6 +263,14 @@ module suilette::drand_based_roulette {
         );
 
         tvec::push_back(&mut game.bets, new_bet);
+
+        let player_bets_table = &mut game.player_bets_table;
+        if (table::contains(player_bets_table, player)) {
+            let player_bets = table::borrow_mut(player_bets_table, player);
+            vec::push_back(player_bets, bet_id);
+        } else {
+            table::add(player_bets_table, player, vec::singleton(bet_id));
+        };
     }
 
     /// Anyone can close the game by providing the randomness of round - 1. 
@@ -386,22 +398,25 @@ module suilette::drand_based_roulette {
         page_size: u64,
         ctx: &mut TxContext
     ) {
-        let RouletteGame<Asset> { id: _, owner: _, status: _, risk_manager: _, round: _, bets, result_roll: _, min_bet: _, settled_bets_count: _} = game;
         // Only owner can delete a game
         assert!(account_owner(house_cap) == tx_context::sender(ctx), ECallerNotHouse);
 
-        let bets_mut = bets;
-        if(page_size > tvec::length(bets_mut))
-            page_size = tvec::length(bets_mut);
+        if(page_size > tvec::length(&game.bets))
+            page_size = tvec::length(&game.bets);
         let counter = 0;
         while (counter < page_size) {
+            let bets_mut = &mut game.bets;
             let bet = tvec::pop_back(bets_mut);
-            delete_bet(bet, ctx);
+            let player = delete_bet(bet, ctx);
+            let player_bets_mut = &mut game.player_bets_table;
+            if (table::contains(player_bets_mut, player)) {
+                table::remove(player_bets_mut, player);
+            };
             counter = counter + 1;
         };
     }
  
-    fun delete_bet<Asset>(bet: Bet<Asset>, ctx: &mut TxContext) {
+    fun delete_bet<Asset>(bet: Bet<Asset>, ctx: &mut TxContext): address {
         let Bet<Asset> { id, bet_type: _, bet_number: _, bet_size, player, is_settled: _, name: _, avatar: _, image_url: _} = bet;
         let player_bet = balance::value(&bet_size);
         if (player_bet > 0) {
@@ -410,6 +425,7 @@ module suilette::drand_based_roulette {
         };
         balance::destroy_zero(bet_size);
         object::delete(id);
+        player
     }
 
     /// close the round 1 turn before
