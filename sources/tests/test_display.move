@@ -4,7 +4,7 @@ module suilette::test_display {
     use std::vector;
     use std::option;
     use sui::sui::SUI;
-    use sui::coin;
+    use sui::coin::{Self, Coin};
     use sui::table;
     use sui::test_scenario as ts;
     use suilette::drand_based_roulette::{Self as sgame, HouseData, RouletteGame, HouseCap};
@@ -139,6 +139,39 @@ module suilette::test_display {
 
             ts::return_shared(game);
             ts::return_shared(house_data);     
+        };
+
+        ts::next_tx(scenario, player_1);
+        {
+            let house_data = ts::take_shared<HouseData<SUI>>(scenario);
+            sgame::claim_rebate(&mut house_data, ts::ctx(scenario));
+            ts::return_shared(house_data);
+        };
+
+        ts::next_tx(scenario, player_1);
+        {
+            let rebate = ts::take_from_sender<Coin<SUI>>(scenario);
+            assert!(coin::value(&rebate) == 30_000_000, 0);
+            sui::balance::destroy_for_testing(coin::into_balance(rebate));
+        };
+
+        ts::next_tx(scenario, player_2);
+        {
+            let house_data = ts::take_shared<HouseData<SUI>>(scenario);
+            sgame::set_referrer(&mut house_data, player_1, ts::ctx(scenario));
+            sgame::claim_rebate(&mut house_data, ts::ctx(scenario));
+            ts::return_shared(house_data);
+        };
+
+        ts::next_tx(scenario, player_2);
+        {
+            let referrer_rebate = ts::take_from_address<Coin<SUI>>(scenario, player_1);
+            assert!(coin::value(&referrer_rebate) == 120_000_000, 0);
+            sui::balance::destroy_for_testing(coin::into_balance(referrer_rebate));
+
+            let player_rebate = ts::take_from_address<Coin<SUI>>(scenario, player_2);
+            assert!(coin::value(&player_rebate) == 120_000_000, 0);
+            sui::balance::destroy_for_testing(coin::into_balance(player_rebate));
         };
 
         ts::end(scenario_val);
