@@ -208,6 +208,17 @@ module suilette::drand_based_roulette {
         transfer::public_transfer(coin, house_data.house);
     }
 
+    public entry fun update_rebate_rate<Asset>(
+        house_cap: &HouseCap,
+        house_data: &mut HouseData<Asset>,
+        player_rate: u64,
+        referrer_rate: u64,
+        ctx: &TxContext,
+    ) {
+        assert!(account_owner(house_cap) == tx_context::sender(ctx), ECallerNotHouse);
+        rem::update_rate(&mut house_data.rebate_manager, player_rate, referrer_rate);
+    }
+
     /// Create a shared-object roulette Game. 
     /// Only a house can create games currently to ensure that we cannot be hacked
     public entry fun create<Asset>(

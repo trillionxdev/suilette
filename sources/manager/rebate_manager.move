@@ -32,6 +32,15 @@ module suilette::rebate_manager {
         }
     }
 
+    public fun update_rate(
+        manager: &mut RebateManager,
+        player_rate: u64,
+        referrer_rate: u64,
+    ) {
+        manager.player_rate = player_rate;
+        manager.referrer_rate = referrer_rate;
+    }
+
     public fun register(
         manager: &mut RebateManager,
         player: address,
