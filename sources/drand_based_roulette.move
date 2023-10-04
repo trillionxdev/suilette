@@ -10,8 +10,8 @@ module suilette::drand_based_roulette {
     use sui::coin::{Self, Coin};
     use sui::tx_context::{Self, TxContext};
     use sui::table::{Self, Table};
+    use sui::table_vec::{Self as tvec, TableVec};
 
-    use suilette::object_table_vec::{Self as tvec, ObjectTableVec};
     use suilette::drand_lib::{derive_randomness, verify_drand_signature, safe_selection};
     use suilette::events::{Self, BetResult};
     use suilette::game_status::{Self as status};
@@ -45,6 +45,17 @@ module suilette::drand_based_roulette {
         image_url: Option<String>,
     }
 
+    struct BetDisplay<phantom Asset> has store, drop {
+        id: ID,
+        bet_type: u8,
+        bet_number: Option<u64>,
+        bet_size: u64,
+        player: address,
+        name: Option<String>,
+        avatar: Option<ID>,
+        image_url: Option<String>,        
+    }
+
     struct HouseData<phantom Asset> has key {
         id: UID,
         balance: Balance<Asset>,
@@ -66,12 +77,12 @@ module suilette::drand_based_roulette {
         owner: address,
         status: u8,
         round: u64,
-        bets: ObjectTableVec<Bet<Asset>>,
+        bets: TableVec<Bet<Asset>>,
         risk_manager: RiskManager,
         result_roll: u64,
         min_bet: u64,
         settled_bets_count: u64,
-        player_bets_table: Table<address, vector<ID>>,
+        player_bets_table: Table<address, vector<BetDisplay<Asset>>>,
     }
 
     // Constructor
@@ -131,11 +142,11 @@ module suilette::drand_based_roulette {
         house_cap.owner
     }
 
-    public fun bets<Asset>(game: &RouletteGame<Asset>): &ObjectTableVec<Bet<Asset>> {
+    public fun bets<Asset>(game: &RouletteGame<Asset>): &TableVec<Bet<Asset>> {
         &game.bets
     }
 
-    public fun player_bets_table<Asset>(game: &RouletteGame<Asset>): &Table<address, vector<ID>> {
+    public fun player_bets_table<Asset>(game: &RouletteGame<Asset>): &Table<address, vector<BetDisplay<Asset>>> {
         &game.player_bets_table
     }
 
@@ -281,12 +292,22 @@ module suilette::drand_based_roulette {
 
         tvec::push_back(&mut game.bets, new_bet);
 
+        let bet_display = BetDisplay<Asset> {
+            id: bet_id,
+            bet_type,
+            bet_number,
+            bet_size: bet_balance_value,
+            player,
+            name,
+            avatar,
+            image_url,
+        };
         let player_bets_table = &mut game.player_bets_table;
         if (table::contains(player_bets_table, player)) {
             let player_bets = table::borrow_mut(player_bets_table, player);
-            vec::push_back(player_bets, bet_id);
+            vec::push_back(player_bets, bet_display);
         } else {
-            table::add(player_bets_table, player, vec::singleton(bet_id));
+            table::add(player_bets_table, player, vec::singleton(bet_display));
         };
 
         // add volume
