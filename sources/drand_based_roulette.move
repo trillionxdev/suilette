@@ -131,6 +131,18 @@ module suilette::drand_based_roulette {
         house_cap.owner
     }
 
+    public fun bets<Asset>(game: &RouletteGame<Asset>): &ObjectTableVec<Bet<Asset>> {
+        &game.bets
+    }
+
+    public fun player_bets_table<Asset>(game: &RouletteGame<Asset>): &Table<address, vector<ID>> {
+        &game.player_bets_table
+    }
+
+    public fun risk_manager<Asset>(game: &RouletteGame<Asset>): &RiskManager {
+        &game.risk_manager
+    }
+
     /// Change the house cap owner 
     public entry fun set_account_owner(house_cap: &mut HouseCap, ctx: &mut TxContext) {
         house_cap.owner = tx_context::sender(ctx);
@@ -384,6 +396,13 @@ module suilette::drand_based_roulette {
                 );
                 vec::push_back(&mut bet_results, bet_result);
             };
+
+            // remove player bet IDs
+            let player_bets_mut = &mut game.player_bets_table;
+            if (table::contains(player_bets_mut, bet.player)) {
+                table::remove(player_bets_mut, bet.player);
+            };
+
             // Increment bet index
             bet_index = bet_index + 1;
             bet.is_settled = true;
@@ -415,16 +434,12 @@ module suilette::drand_based_roulette {
         while (counter < page_size) {
             let bets_mut = &mut game.bets;
             let bet = tvec::pop_back(bets_mut);
-            let player = delete_bet(bet, ctx);
-            let player_bets_mut = &mut game.player_bets_table;
-            if (table::contains(player_bets_mut, player)) {
-                table::remove(player_bets_mut, player);
-            };
+            delete_bet(bet, ctx);
             counter = counter + 1;
         };
     }
 
-    fun delete_bet<Asset>(bet: Bet<Asset>, ctx: &mut TxContext): address {
+    fun delete_bet<Asset>(bet: Bet<Asset>, ctx: &mut TxContext) {
         let Bet<Asset> { id, bet_type: _, bet_number: _, bet_size, player, is_settled: _, name: _, avatar: _, image_url: _} = bet;
         let player_bet = balance::value(&bet_size);
         if (player_bet > 0) {
@@ -433,7 +448,6 @@ module suilette::drand_based_roulette {
         };
         balance::destroy_zero(bet_size);
         object::delete(id);
-        player
     }
 
     /// close the round 1 turn before
@@ -858,6 +872,13 @@ module suilette::drand_based_roulette {
                 );
                 vec::push_back(&mut bet_results, bet_result);
             };
+
+            // remove player bet IDs
+            let player_bets_mut = &mut game.player_bets_table;
+            if (table::contains(player_bets_mut, bet.player)) {
+                table::remove(player_bets_mut, bet.player);
+            };
+
             // Increment bet index
             bet_index = bet_index + 1;
             bet.is_settled = true;
@@ -872,10 +893,5 @@ module suilette::drand_based_roulette {
         events::emit_game_completed<Asset>(
             game_id, win_roll, bet_results,
         );
-    }
-
-    #[test_only]
-    public fun risk_manager<Asset>(game: &RouletteGame<Asset>): &RiskManager {
-        &game.risk_manager
     }
 }
