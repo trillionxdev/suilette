@@ -30,8 +30,8 @@ module suilette::drand_based_roulette {
 
     // 1 SUI is the default min bet
     const DEFAULT_MIN_BET: u64 = 1000000000;
-    const DEFAULT_PLAYER_REBATE_RATE: u64 = 5_000_000; // 0.5%
-    const DEFAULT_REFERRER_REBATE_RATE: u64 = 5_000_000; // 0.5%
+    const DEFAULT_PLAYER_REBATE_RATE: u64 = 0; // 0.5%
+    const DEFAULT_REFERRER_REBATE_RATE: u64 = 0; // 0.5%
 
     struct Bet<phantom Asset> has key, store {
         id: UID,
@@ -53,7 +53,7 @@ module suilette::drand_based_roulette {
         player: address,
         name: Option<String>,
         avatar: Option<ID>,
-        image_url: Option<String>,        
+        image_url: Option<String>,
     }
 
     struct HouseData<phantom Asset> has key {
