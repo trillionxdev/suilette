@@ -3,15 +3,15 @@ module suilette::rebate_manager {
     use std::option::{Self, Option};
     use sui::table::{Self, Table};
     use sui::tx_context::TxContext;
-    use suilette::math::mul;
+    use suilette::math::unsafe_mul;
 
     const EReferrerAlreadySet: u64 = 0;
     const ENoRegistration: u64 = 1;
 
     struct RebateData has store, drop {
+        amount_for_player: u64,
         referrer: Option<address>,
-        total_volume: u64,
-        claimed_volume: u64, 
+        amount_for_referrer: u64,
     }
 
     struct RebateManager has store {
@@ -53,9 +53,9 @@ module suilette::rebate_manager {
             rebate_data.referrer = referrer;
         } else {
             table::add(rebate_table, player, RebateData {
+                amount_for_player: 0,
                 referrer,
-                total_volume: 0,
-                claimed_volume: 0,
+                amount_for_referrer: 0,
             })
         };
     }
@@ -69,8 +69,12 @@ module suilette::rebate_manager {
             register(manager, player, option::none());
         };
 
+        let amount_for_player = unsafe_mul(bet_size, manager.player_rate);
+        let amount_for_referrer = unsafe_mul(bet_size, manager.referrer_rate);
+
         let rebate_data = table::borrow_mut(&mut manager.rebate_table, player);
-        rebate_data.total_volume = rebate_data.total_volume + bet_size;
+        rebate_data.amount_for_player = rebate_data.amount_for_player + amount_for_player;
+        rebate_data.amount_for_referrer = rebate_data.amount_for_referrer + amount_for_referrer;
     }
 
     public fun claim_rebate(
@@ -78,18 +82,12 @@ module suilette::rebate_manager {
         player: address,
     ): (u64, Option<address>, u64) {
         assert!(table::contains(&manager.rebate_table, player), ENoRegistration);
-        let player_rate = manager.player_rate;
-        let referrer_rate = manager.referrer_rate;
         let rebate_data = table::borrow_mut(&mut manager.rebate_table, player);
+        let player_rebate_amount = rebate_data.amount_for_player;
         let referrer = rebate_data.referrer;
-        let claimable_volume = rebate_data.total_volume - rebate_data.claimed_volume;
-        let player_rebate_amount = mul(claimable_volume, player_rate);
-        let referrer_rebate_amount = if (option::is_some(&referrer)) {
-            mul(claimable_volume, referrer_rate)
-        } else {
-            0
-        };
-        rebate_data.claimed_volume = rebate_data.total_volume;
+        let referrer_rebate_amount = rebate_data.amount_for_referrer;
+        rebate_data.amount_for_player = 0;
+        rebate_data.amount_for_referrer = 0;
         (player_rebate_amount, referrer, referrer_rebate_amount)
     }
 }
