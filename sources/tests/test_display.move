@@ -95,8 +95,8 @@ module suilette::test_display {
 
             // std::debug::print(sgame::risk_manager(&game));
             // std::debug::print(&game);
-            assert!(sgame::game_risk(&game) == 240_000_000_000, 0);
-            assert!(sgame::house_risk(&house_data) == 240_000_000_000, 0);
+            assert!(sgame::game_risk(&game) == 132_000_000_000, 0);
+            assert!(sgame::house_risk(&house_data) == 132_000_000_000, 0);
             let player_bets_table = sgame::player_bets_table(&game);
             assert!(table::length(player_bets_table) == 2, 0);
             let player_1_bets = table::borrow(player_bets_table, player_1);
@@ -133,7 +133,7 @@ module suilette::test_display {
 
             // std::debug::print(sgame::risk_manager(&game));
             // std::debug::print(&game);
-            assert!(sgame::game_risk(&game) == 240_000_000_000, 0);
+            assert!(sgame::game_risk(&game) == 132_000_000_000, 0);
             assert!(sgame::house_risk(&house_data) == 0, 0);
             let player_bets_table = sgame::player_bets_table(&game);
             assert!(table::length(player_bets_table) == 0, 0);

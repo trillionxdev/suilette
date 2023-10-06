@@ -23,7 +23,7 @@ module suilette::test_play {
             10_000_000_000,
         );
 
-        let round_count: u64 = 50;
+        let round_count: u64 = 10;
         let round_idx: u64 = 0;
         while(round_idx < round_count) {
             // std::debug::print(&round_idx);
@@ -39,7 +39,7 @@ module suilette::test_play {
                 ts::return_to_address<HouseCap>(house(), house_cap);
             };
 
-            let player_count: u64 = 80;
+            let player_count: u64 = 200;
             let player_idx: u64 = 0;
             let players = vector<address>[];
             let player_bet_sizes = vector<u64>[];
@@ -52,7 +52,7 @@ module suilette::test_play {
                 {
                     let game = ts::take_shared<RouletteGame<SUI>>(scenario);
                     let house_data = ts::take_shared<HouseData<SUI>>(scenario);
-
+                    // std::debug::print(&sgame::game_risk(&game));
                     sgame::place_bet(bet, bet_type, bet_number, &mut game, &mut house_data, option::none(), option::none(), option::none(), ts::ctx(scenario));
                     vector::push_back(&mut players, player);
                     vector::push_back(&mut player_bet_sizes, bet_size);
@@ -73,7 +73,7 @@ module suilette::test_play {
                 let house_data = ts::take_shared<HouseData<SUI>>(scenario);
                 let house_cap = ts::take_from_sender<HouseCap>(scenario);
 
-                sgame::complete_for_testing<SUI>(&mut game, &house_cap, &mut house_data, result_roll, 0, 100, ts::ctx(scenario));
+                sgame::complete_for_testing<SUI>(&mut game, &house_cap, &mut house_data, result_roll, 0, player_count, ts::ctx(scenario));
 
                 ts::return_shared(game);
                 ts::return_shared(house_data);
@@ -98,7 +98,7 @@ module suilette::test_play {
                 let house_data = ts::take_shared<HouseData<SUI>>(scenario);
                 let house_cap = ts::take_from_sender<HouseCap>(scenario);
 
-                sgame::refund_all_bets<SUI>(&house_cap,&mut game, 100, ts::ctx(scenario));
+                sgame::refund_all_bets<SUI>(&house_cap,&mut game, player_count, ts::ctx(scenario));
 
                 ts::return_shared(game);
                 ts::return_shared(house_data);

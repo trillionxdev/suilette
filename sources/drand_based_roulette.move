@@ -271,8 +271,12 @@ module suilette::drand_based_roulette {
         let bet_payout = bm::get_bet_payout(coin_value, bet_type);
 
         // add risk
-        let risk_change = rm::add_risk(&mut game.risk_manager, bet_type, bet_number, bet_payout);
-        house_data.house_risk = house_data.house_risk + risk_change;
+        let (risk_increased, risk_change) = rm::add_risk(&mut game.risk_manager, bet_type, bet_number, bet_payout);
+        if (risk_increased) {
+            house_data.house_risk = house_data.house_risk + risk_change;
+        } else {
+            house_data.house_risk = house_data.house_risk - risk_change;
+        };
 
         assert!(house_risk(house_data) <= balance(house_data), EInsufficientHouseBalance);
         assert!(rm::total_risk(&game.risk_manager) <= house_data.max_risk_per_game, EInsufficientHouseBalance);

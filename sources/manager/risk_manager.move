@@ -18,6 +18,7 @@ module suilette::risk_manager {
 
     struct RiskHeap has store, drop {
         max_risk: u64,
+        sum_risk: u64,
         risks: vector<u64>,
     }
 
@@ -48,11 +49,10 @@ module suilette::risk_manager {
         bet_type: u8,
         bet_number: Option<u64>,
         bet_payout: u64,
-    ): u64 {
+    ): (bool, u64) {
         let bet_type_u64 = (bet_type as u64);
 
-        // color risk
-        let risk_change = if (bet_type == bm::red() || bet_type == bm::black()) {
+        let (risk_increased, risk_change) = if (bet_type == bm::red() || bet_type == bm::black()) {
             add_risk_to_heap(&mut manager.color_heap, bet_type_u64 % COLOR_COUNT, bet_payout)
         } else if (bet_type == bm::even() || bet_type == bm::odd()) {
             add_risk_to_heap(&mut manager.parity_heap, bet_type_u64 % PARITY_COUNT, bet_payout)
@@ -70,30 +70,18 @@ module suilette::risk_manager {
             abort EInvalidBetType
         };
 
-        manager.total_risk = manager.total_risk + risk_change;
+        if (risk_increased) {
+            manager.total_risk = manager.total_risk + risk_change;
+        } else {
+            manager.total_risk = manager.total_risk - risk_change;
+        };
 
         // return the risk change
-        risk_change
+        (risk_increased, risk_change)
     }
 
     public fun total_risk(risk_manager: &RiskManager): u64 {
         risk_manager.total_risk
-    }
-
-    fun add_risk_to_heap(
-        heap: &mut RiskHeap,
-        index: u64,
-        bet_payout: u64,
-    ): u64 {
-        let risk = vector::borrow_mut(&mut heap.risks, index);
-        *risk = *risk + bet_payout;
-        if (*risk > heap.max_risk) {
-            let risk_change = *risk - heap.max_risk;
-            heap.max_risk = *risk;
-            risk_change
-        } else {
-            0
-        }
     }
 
     fun new_risk_heap(size: u64): RiskHeap {
@@ -105,7 +93,37 @@ module suilette::risk_manager {
         };
         RiskHeap {
             max_risk: 0,
+            sum_risk: 0,
             risks,
         }
     }
+
+    fun add_risk_to_heap(
+        heap: &mut RiskHeap,
+        index: u64,
+        bet_payout: u64,
+    ): (bool, u64) {
+        let previous_risk = heap_risk(heap);
+        heap.sum_risk = heap.sum_risk + bet_payout;
+        let risk = vector::borrow_mut(&mut heap.risks, index);
+        *risk = *risk + bet_payout;
+        if (*risk > heap.max_risk) {
+            heap.max_risk = *risk;
+        };
+        let current_risk = heap_risk(heap);
+        if (current_risk > previous_risk) {
+            (true, current_risk - previous_risk)
+        } else {
+            (false, previous_risk - current_risk)
+        }
+    }
+
+    fun heap_risk(heap: &RiskHeap): u64 {
+        if (2 * heap.max_risk > heap.sum_risk) {
+            2 * heap.max_risk - heap.sum_risk
+        } else {
+            0
+        }
+    }
+
 }
