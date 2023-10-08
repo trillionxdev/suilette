@@ -463,6 +463,107 @@ module suilette::drand_based_roulette {
         );
     }
 
+    public entry fun complete_partial<Asset>(
+        game_id: ID, 
+        house_cap: &HouseCap,        
+        house_data: &mut HouseData<Asset>, 
+        drand_sig: vector<u8>, 
+        drand_prev_sig: vector<u8>,
+        cursor: u64,
+        page_size: u64,
+        player_won_part: bool,
+        ctx: &mut TxContext
+    ) {
+        let game = borrow_game_mut(house_data, game_id);
+        assert!(game.status != status::completed(), EGameAlreadyCompleted);
+        assert!(account_owner(house_cap) == tx_context::sender(ctx), ECallerNotHouse);
+        verify_drand_signature(drand_sig, drand_prev_sig, game.round);
+
+        // The randomness is derived from drand_sig by passing it through sha2_256 to make it uniform.
+        let digest = derive_randomness(drand_sig);
+
+        // We accept some small amount of bias with safe selection
+        // 0 or 37 are both losses unless they picked a number
+        let win_roll = safe_selection(38, &digest);
+        game.result_roll = win_roll;
+
+        let game_id = *object::uid_as_inner(&game.id);
+        
+        // let bet_index = 0;
+        let bet_index = cursor;
+        let end_index = cursor + page_size;
+        let bets_length = tvec::length(&game.bets);
+        if (end_index > bets_length) end_index = bets_length;
+
+        let bet_results = vector<BetResult<Asset>>[];
+
+        // Deduct the house risk of the max number bet since we theoretically pay it off
+        game.status = status::in_settlement();
+        
+        while (bet_index < end_index) {
+            let game = borrow_game_mut(house_data, game_id);
+            let bet = tvec::borrow_mut(&mut game.bets, bet_index);
+            let player = bet.player;
+            let player_bet = balance::value(&bet.bet_size);
+            if (bet.is_settled) {
+                // Increment bet index
+                bet_index = bet_index + 1;
+                continue
+            };
+            let bet_payout = bm::get_bet_payout(player_bet, bet.bet_type);
+            let player_won = bm::won_bet(bet.bet_type, win_roll, bet.bet_number);
+
+            if (player_won_part != player_won) continue;
+
+            let bet_id = *object::uid_as_inner(&bet.id);
+            let bet_result = events::new_bet_result(
+                bet_id,
+                player_won,
+                bet.bet_type,
+                bet.bet_number,
+                player_bet,
+                bet.player,
+            );
+            vec::push_back(&mut bet_results, bet_result);
+            let player_coin = coin::take(&mut bet.bet_size, player_bet, ctx);
+            bet.is_settled = true;
+
+            // remove player bet IDs
+            let player_bets_mut = &mut game.player_bets_table;
+            if (table::contains(player_bets_mut, player)) {
+                table::remove(player_bets_mut, player);
+            };
+            game.settled_bets_count = game.settled_bets_count + 1;
+
+            // Deal with house and payout
+            if (player_won) {
+                let house_payment = coin::take(&mut house_data.balance, bet_payout, ctx);
+                coin::join(&mut player_coin, house_payment);
+                transfer::public_transfer(player_coin, player);
+            } else {
+                // Send money to the house in losing bet
+                coin::put(&mut house_data.balance, player_coin);
+            };
+
+            // Increment bet index
+            bet_index = bet_index + 1;
+        };
+
+        let game = borrow_game_mut(house_data, game_id);
+        let settled_bets_count = game.settled_bets_count;
+        if (settled_bets_count == bets_length) {
+            game.status = status::completed();
+        };
+        let game_total_risk = rm::total_risk(&game.risk_manager);
+        if (settled_bets_count == bets_length) {
+            house_data.house_risk = house_data.house_risk - game_total_risk;
+        };
+
+        events::emit_game_completed<Asset>(
+            game_id, win_roll, bet_results,
+        );
+    }
+
     public entry fun refund_all_bets<Asset>(
         house_cap: &HouseCap,
         house_data: &mut HouseData<Asset>,
