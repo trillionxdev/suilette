@@ -7,7 +7,7 @@ module suilette::test_display {
     use sui::coin::{Self, Coin};
     use sui::table;
     use sui::test_scenario as ts;
-    use suilette::drand_based_roulette::{Self as sgame, HouseData, RouletteGame, HouseCap};
+    use suilette::drand_based_roulette::{Self as sgame, HouseData, HouseCap};
     use suilette::bet_manager as bm;
     use suilette::init_tool::{Self, house};
 
@@ -122,17 +122,15 @@ module suilette::test_display {
         // check
         ts::next_tx(scenario, house());
         {
-            let game = ts::take_shared<RouletteGame<SUI>>(scenario);
             let house_data = ts::take_shared<HouseData<SUI>>(scenario);
-
+            let game = sgame::borrow_game(&house_data, game_id);
             // std::debug::print(sgame::risk_manager(&game));
             // std::debug::print(&game);
-            assert!(sgame::game_risk(&game) == 132_000_000_000, 0);
+            assert!(sgame::game_risk(game) == 132_000_000_000, 0);
             assert!(sgame::house_risk(&house_data) == 0, 0);
-            let player_bets_table = sgame::player_bets_table(&game);
+            let player_bets_table = sgame::player_bets_table(game);
             assert!(table::length(player_bets_table) == 0, 0);
 
-            ts::return_shared(game);
             ts::return_shared(house_data);     
         };
 

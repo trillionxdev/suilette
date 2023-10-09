@@ -6,7 +6,7 @@ module suilette::test_play {
     use sui::sui::SUI;
     use sui::coin::{Self, Coin};
     use sui::test_scenario as ts;
-    use suilette::drand_based_roulette::{Self as sgame, HouseData, RouletteGame, HouseCap};
+    use suilette::drand_based_roulette::{Self as sgame, HouseData, HouseCap};
     use suilette::player_generator as pg;
     use suilette::bet_manager as bm;
     use suilette::init_tool::{Self, house};
