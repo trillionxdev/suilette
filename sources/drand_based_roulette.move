@@ -85,6 +85,7 @@ module suilette::drand_based_roulette {
         min_bet: u64,
         settled_bets_count: u64,
         player_bets_table: Table<address, vector<BetDisplay<Asset>>>,
+        fund: Balance<Asset>,
     }
 
     // Constructor
@@ -231,6 +232,9 @@ module suilette::drand_based_roulette {
     ): ID {
         assert!(account_owner(house_cap) == house_data.house, ECallerNotHouse);
 
+        let max_risk_per_game = house_data.max_risk_per_game;
+        let fund = balance::split(&mut house_data.balance, max_risk_per_game);
+
         // Initialize the number_risk to be a vector of size 38, starting from 0.
         let game_uid = object::new(ctx);
         let game = RouletteGame<Asset> {
@@ -244,6 +248,7 @@ module suilette::drand_based_roulette {
             min_bet: DEFAULT_MIN_BET,
             settled_bets_count: 0,
             player_bets_table: table::new(ctx),
+            fund,
         };
         let game_id = *object::uid_as_inner(&game.id);
         dof::add(&mut house_data.id, game_id, game);
@@ -293,7 +298,6 @@ module suilette::drand_based_roulette {
         };
 
         let max_risk_per_game = house_data.max_risk_per_game;
-        assert!(house_risk(house_data) <= balance(house_data), EInsufficientHouseBalance);
         let game = borrow_game_mut(house_data, game_id);
         assert!(rm::total_risk(&game.risk_manager) <= max_risk_per_game, EInsufficientHouseBalance);
         assert!(game.status == status::in_progress(), EGameNotInProgress);
@@ -378,10 +382,12 @@ module suilette::drand_based_roulette {
         let game = borrow_game(house_data, game_id);
         assert!(game.status != status::completed(), EGameAlreadyCompleted);
         complete_partial(game_id, house_cap, house_data, drand_sig, drand_prev_sig, cursor, page_size, false, ctx);
+        let game = borrow_game(house_data, game_id);
+        if (game.status == status::completed()) return;
         complete_partial(game_id, house_cap, house_data, drand_sig, drand_prev_sig, cursor, page_size, true, ctx);
     }
 
-    fun complete_partial<Asset>(
+    public fun complete_partial<Asset>(
         game_id: ID, 
         house_cap: &HouseCap,        
         house_data: &mut HouseData<Asset>, 
@@ -393,7 +399,7 @@ module suilette::drand_based_roulette {
         ctx: &mut TxContext
     ) {
         let game = borrow_game_mut(house_data, game_id);
-        if (game.status == status::completed()) return;
+        assert!(game.status != status::completed(), EGameAlreadyCompleted);
         assert!(account_owner(house_cap) == tx_context::sender(ctx), ECallerNotHouse);
         verify_drand_signature(drand_sig, drand_prev_sig, game.round);
 
@@ -419,7 +425,6 @@ module suilette::drand_based_roulette {
         game.status = status::in_settlement();
         
         while (bet_index < end_index) {
-            let game = borrow_game_mut(house_data, game_id);
             let bet = tvec::borrow_mut(&mut game.bets, bet_index);
             let player_won = bm::won_bet(bet.bet_type, win_roll, bet.bet_number);
             if (player_won_part != player_won) {
@@ -456,27 +461,31 @@ module suilette::drand_based_roulette {
 
             // Deal with house and payout
             if (player_won) {
-                let house_payment = coin::take(&mut house_data.balance, bet_payout, ctx);
+                let house_payment = coin::take(&mut game.fund, bet_payout, ctx);
                 coin::join(&mut player_coin, house_payment);
                 transfer::public_transfer(player_coin, player);
             } else {
                 // Send money to the house in losing bet
-                coin::put(&mut house_data.balance, player_coin);
+                coin::put(&mut game.fund, player_coin);
             };
 
             // Increment bet index
             bet_index = bet_index + 1;
         };
 
-        let game = borrow_game_mut(house_data, game_id);
         let settled_bets_count = game.settled_bets_count;
-        if (settled_bets_count == bets_length) {
+        let game_fund = if (settled_bets_count == bets_length) {
             game.status = status::completed();
+            balance::withdraw_all(&mut game.fund)
+        } else {
+            balance::zero()
         };
         let game_total_risk = rm::total_risk(&game.risk_manager);
         if (settled_bets_count == bets_length) {
             house_data.house_risk = house_data.house_risk - game_total_risk;
         };
+
+        balance::join(&mut house_data.balance, game_fund);
 
         events::emit_game_completed<Asset>(
             game_id, win_roll, bet_results,
@@ -505,7 +514,8 @@ module suilette::drand_based_roulette {
         };
         if (tvec::is_empty(&game.bets)) {
             let game = dof::remove<ID, RouletteGame<Asset>>(&mut house_data.id, game_id);
-            delete_game(game);
+            let game_fund = delete_game(game);
+            balance::join(&mut house_data.balance, game_fund);
         };
     }
 
@@ -525,7 +535,7 @@ module suilette::drand_based_roulette {
         round - 1
     }
 
-    fun delete_game<Asset>(game: RouletteGame<Asset>) {
+    fun delete_game<Asset>(game: RouletteGame<Asset>): Balance<Asset> {
         let RouletteGame {
             id,
             owner: _,
@@ -537,10 +547,12 @@ module suilette::drand_based_roulette {
             min_bet: _,
             settled_bets_count: _,
             player_bets_table,
+            fund,
         } = game;
         object::delete(id);
         tvec::destroy_empty(bets);
         table::drop(player_bets_table);
+        fund
     }
 
     /// Rebate & Referral
@@ -902,7 +914,6 @@ module suilette::drand_based_roulette {
         game.status = status::in_settlement();
         
         while (bet_index < end_index) {
-            let game = borrow_game_mut(house_data, game_id);
             let bet = tvec::borrow_mut(&mut game.bets, bet_index);
             let player_won = bm::won_bet(bet.bet_type, win_roll, bet.bet_number);
             if (player_won_part != player_won) {
@@ -913,7 +924,6 @@ module suilette::drand_based_roulette {
                 bet_index = bet_index + 1;
                 continue
             };
-            
             let player = bet.player;
             let player_bet = balance::value(&bet.bet_size);
             let bet_payout = bm::get_bet_payout(player_bet, bet.bet_type);
@@ -940,27 +950,31 @@ module suilette::drand_based_roulette {
 
             // Deal with house and payout
             if (player_won) {
-                let house_payment = coin::take(&mut house_data.balance, bet_payout, ctx);
+                let house_payment = coin::take(&mut game.fund, bet_payout, ctx);
                 coin::join(&mut player_coin, house_payment);
                 transfer::public_transfer(player_coin, player);
             } else {
                 // Send money to the house in losing bet
-                coin::put(&mut house_data.balance, player_coin);
+                coin::put(&mut game.fund, player_coin);
             };
 
             // Increment bet index
             bet_index = bet_index + 1;
         };
 
-        let game = borrow_game_mut(house_data, game_id);
         let settled_bets_count = game.settled_bets_count;
-        if (settled_bets_count == bets_length) {
+        let game_fund = if (settled_bets_count == bets_length) {
             game.status = status::completed();
+            balance::withdraw_all(&mut game.fund)
+        } else {
+            balance::zero()
         };
         let game_total_risk = rm::total_risk(&game.risk_manager);
         if (settled_bets_count == bets_length) {
             house_data.house_risk = house_data.house_risk - game_total_risk;
         };
+
+        balance::join(&mut house_data.balance, game_fund);
 
         events::emit_game_completed<Asset>(
             game_id, win_roll, bet_results,
