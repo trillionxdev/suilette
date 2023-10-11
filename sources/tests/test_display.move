@@ -5,6 +5,7 @@ module suilette::test_display {
     use std::option;
     use sui::sui::SUI;
     use sui::coin::{Self, Coin};
+    use sui::clock::Clock;
     use sui::table;
     use sui::test_scenario as ts;
     use suilette::drand_based_roulette::{Self as sgame, HouseData, HouseCap};
@@ -22,11 +23,13 @@ module suilette::test_display {
         let game_id = {
             let house_data = ts::take_shared<HouseData<SUI>>(scenario);
             let house_cap = ts::take_from_address<HouseCap>(scenario, house());
+            let clock = ts::take_shared<Clock>(scenario);
 
             sgame::update_rebate_rate(&house_cap, &mut house_data, 5_000_000, 5_000_000);
-            let game_id = sgame::create<SUI>(0, &mut house_data, &house_cap, ts::ctx(scenario));
+            let game_id = sgame::create<SUI>(&clock, 0, &mut house_data, &house_cap, ts::ctx(scenario));
 
             ts::return_shared(house_data);
+            ts::return_shared(clock);
             ts::return_to_address<HouseCap>(house(), house_cap);
             game_id
         };
@@ -35,53 +38,57 @@ module suilette::test_display {
         ts::next_tx(scenario, player_1);
         {
             let house_data = ts::take_shared<HouseData<SUI>>(scenario);
+            let clock = ts::take_shared<Clock>(scenario);
 
             // multi bets
             let bet = coin::mint_for_testing(1_000_000_000, ts::ctx(scenario));
             let bet_type = bm::black();
             let bet_number = option::none();
-            sgame::place_bet(bet, bet_type, bet_number, game_id, &mut house_data, option::none(), option::none(), option::none(), ts::ctx(scenario));
+            sgame::place_bet(&clock, bet, bet_type, bet_number, game_id, &mut house_data, option::none(), option::none(), option::none(), ts::ctx(scenario));
 
             let bet = coin::mint_for_testing(2_000_000_000, ts::ctx(scenario));
             let bet_type = bm::even();
             let bet_number = option::none();
-            sgame::place_bet(bet, bet_type, bet_number, game_id, &mut house_data, option::none(), option::none(), option::none(), ts::ctx(scenario));
+            sgame::place_bet(&clock, bet, bet_type, bet_number, game_id, &mut house_data, option::none(), option::none(), option::none(), ts::ctx(scenario));
 
             let bet = coin::mint_for_testing(3_000_000_000, ts::ctx(scenario));
             let bet_type = bm::number();
             let bet_number = option::some(5);
-            sgame::place_bet(bet, bet_type, bet_number, game_id, &mut house_data, option::none(), option::none(), option::none(), ts::ctx(scenario));
+            sgame::place_bet(&clock, bet, bet_type, bet_number, game_id, &mut house_data, option::none(), option::none(), option::none(), ts::ctx(scenario));
 
             ts::return_shared(house_data);
+            ts::return_shared(clock);
         };
 
         let player_2: address = @0x22222;
         ts::next_tx(scenario, player_2);
         {
             let house_data = ts::take_shared<HouseData<SUI>>(scenario);
+            let clock = ts::take_shared<Clock>(scenario);
 
             // multi bets
             let bet = coin::mint_for_testing(2_000_000_000, ts::ctx(scenario));
             let bet_type = bm::red();
             let bet_number = option::none();
-            sgame::place_bet(bet, bet_type, bet_number, game_id, &mut house_data, option::none(), option::none(), option::none(), ts::ctx(scenario));
+            sgame::place_bet(&clock, bet, bet_type, bet_number, game_id, &mut house_data, option::none(), option::none(), option::none(), ts::ctx(scenario));
 
             let bet = coin::mint_for_testing(4_000_000_000, ts::ctx(scenario));
             let bet_type = bm::odd();
             let bet_number = option::none();
-            sgame::place_bet(bet, bet_type, bet_number, game_id, &mut house_data, option::none(), option::none(), option::none(), ts::ctx(scenario));
+            sgame::place_bet(&clock, bet, bet_type, bet_number, game_id, &mut house_data, option::none(), option::none(), option::none(), ts::ctx(scenario));
 
             let bet = coin::mint_for_testing(6_000_000_000, ts::ctx(scenario));
             let bet_type = bm::number();
             let bet_number = option::some(7);
-            sgame::place_bet(bet, bet_type, bet_number, game_id, &mut house_data, option::none(), option::none(), option::none(), ts::ctx(scenario));
+            sgame::place_bet(&clock, bet, bet_type, bet_number, game_id, &mut house_data, option::none(), option::none(), option::none(), ts::ctx(scenario));
 
             let bet = coin::mint_for_testing(12_000_000_000, ts::ctx(scenario));
             let bet_type = bm::first_twelve();
             let bet_number = option::none();
-            sgame::place_bet(bet, bet_type, bet_number, game_id, &mut house_data, option::none(), option::none(), option::none(), ts::ctx(scenario));
+            sgame::place_bet(&clock, bet, bet_type, bet_number, game_id, &mut house_data, option::none(), option::none(), option::none(), ts::ctx(scenario));
 
-            ts::return_shared(house_data);            
+            ts::return_shared(house_data); 
+            ts::return_shared(clock);
         };
 
         // check

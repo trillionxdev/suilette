@@ -4,6 +4,7 @@ module suilette::test_play {
     use std::vector;
     use std::option::{Self, Option};
     use sui::sui::SUI;
+    use sui::clock::Clock;
     use sui::coin::{Self, Coin};
     use sui::test_scenario as ts;
     use suilette::drand_based_roulette::{Self as sgame, HouseData, HouseCap};
@@ -32,10 +33,12 @@ module suilette::test_play {
             let game_id = {
                 let house_data = ts::take_shared<HouseData<SUI>>(scenario);
                 let house_cap = ts::take_from_address<HouseCap>(scenario, house());
-        
-                let game_id = sgame::create<SUI>(round_idx, &mut house_data, &house_cap, ts::ctx(scenario));
+                let clock = ts::take_shared<Clock>(scenario);
+
+                let game_id = sgame::create<SUI>(&clock, round_idx, &mut house_data, &house_cap, ts::ctx(scenario));
 
                 ts::return_shared(house_data);
+                ts::return_shared(clock);
                 ts::return_to_address<HouseCap>(house(), house_cap);
                 game_id
             };
@@ -52,13 +55,16 @@ module suilette::test_play {
                 ts::next_tx(scenario, player);
                 {
                     let house_data = ts::take_shared<HouseData<SUI>>(scenario);
+                    let clock = ts::take_shared<Clock>(scenario);
+
                     // std::debug::print(&sgame::game_risk(&game));
-                    sgame::place_bet(bet, bet_type, bet_number, game_id, &mut house_data, option::none(), option::none(), option::none(), ts::ctx(scenario));
+                    sgame::place_bet(&clock, bet, bet_type, bet_number, game_id, &mut house_data, option::none(), option::none(), option::none(), ts::ctx(scenario));
                     vector::push_back(&mut players, player);
                     vector::push_back(&mut player_bet_sizes, bet_size);
                     vector::push_back(&mut player_bet_types, bet_type);
                     vector::push_back(&mut player_bet_numbers, bet_number);
 
+                    ts::return_shared(clock);
                     ts::return_shared(house_data);
                 };
 

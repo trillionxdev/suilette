@@ -4,6 +4,7 @@ module suilette::drand_based_roulette {
     use std::vector::{Self as vec};
     use std::option::{Self, Option};
     use std::string::String;
+    use sui::clock::{Self, Clock};
     use sui::object::{Self, UID, ID};
     use sui::balance::{Self, Balance};
     use sui::transfer;
@@ -23,17 +24,18 @@ module suilette::drand_based_roulette {
     /// Error codes
     const EGameNotInProgress: u64 = 0;
     const EGameAlreadyCompleted: u64 = 1;
-    const ECallerNotHouse: u64 = 4;
-    const EInsufficientBalance: u64 = 6;
-    const EInsufficientHouseBalance: u64 = 8;
-    const EInvalidBetType: u64 = 10;
-    const EInvalidBetNumber: u64 = 12;
-    const EGameNotFound: u64 = 13;
+    const ECallerNotHouse: u64 = 2;
+    const EInsufficientBalance: u64 = 3;
+    const EInsufficientHouseBalance: u64 = 4;
+    const EInvalidBetType: u64 = 5;
+    const EInvalidBetNumber: u64 = 6;
+    const EGameNotFound: u64 = 7;
 
     // 1 SUI is the default min bet
     const DEFAULT_MIN_BET: u64 = 1000000000;
     const DEFAULT_PLAYER_REBATE_RATE: u64 = 0; // 0.5%
     const DEFAULT_REFERRER_REBATE_RATE: u64 = 0; // 0.5%
+    const INTERVAL_OF_PLACING_BET: u64 = 60_000; // 60 sec
 
     struct Bet<phantom Asset> has key, store {
         id: UID,
@@ -87,6 +89,7 @@ module suilette::drand_based_roulette {
         settled_bets_count: u64,
         player_bets_table: Table<address, vector<BetDisplay<Asset>>>,
         fund: Balance<Asset>,
+        time_to_close_bet: u64,
     }
 
     // Constructor
@@ -224,15 +227,17 @@ module suilette::drand_based_roulette {
     /// Create a shared-object roulette Game. 
     /// Only a house can create games currently to ensure that we cannot be hacked
     public entry fun create<Asset>(
+        clock: &Clock,
         round: u64,
         house_data: &mut HouseData<Asset>,
         house_cap: &HouseCap,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ): ID {
         assert!(houes_cap_id(house_cap) == object::id(house_data), ECallerNotHouse);
 
         let max_risk_per_game = house_data.max_risk_per_game;
         let fund = balance::split(&mut house_data.balance, max_risk_per_game);
+        let current_timestamp = clock::timestamp_ms(clock);
 
         // Initialize the number_risk to be a vector of size 38, starting from 0.
         let game_uid = object::new(ctx);
@@ -248,6 +253,7 @@ module suilette::drand_based_roulette {
             settled_bets_count: 0,
             player_bets_table: table::new(ctx),
             fund,
+            time_to_close_bet: current_timestamp + INTERVAL_OF_PLACING_BET,
         };
         let game_id = *object::uid_as_inner(&game.id);
         dof::add(&mut house_data.id, game_id, game);
@@ -268,6 +274,7 @@ module suilette::drand_based_roulette {
     /// Anyone can participate in the betting of the game, could consider allowing different bet sizes
     /// A user can only place a bet in the current round and the next round
     public entry fun place_bet<Asset>(
+        clock: &Clock,
         coin: Coin<Asset>,
         bet_type: u8,
         bet_number: Option<u64>,
@@ -289,6 +296,7 @@ module suilette::drand_based_roulette {
 
         // add risk
         let game = borrow_game_mut(house_data, game_id);
+        assert!(clock::timestamp_ms(clock) <= game.time_to_close_bet, EGameNotInProgress);
         let (risk_increased, risk_change) = rm::add_risk(&mut game.risk_manager, bet_type, bet_number, bet_payout);
         if (risk_increased) {
             house_data.house_risk = house_data.house_risk + risk_change;
@@ -547,6 +555,7 @@ module suilette::drand_based_roulette {
             settled_bets_count: _,
             player_bets_table,
             fund,
+            time_to_close_bet: _,
         } = game;
         object::delete(id);
         tvec::destroy_empty(bets);
@@ -627,12 +636,14 @@ module suilette::drand_based_roulette {
             // Top up the house
             let house_data = test_scenario::take_shared<HouseData<SUI>>(scenario);
             let house_cap = test_scenario::take_from_address<HouseCap>(scenario, house);
+            let clock = test_scenario::take_shared<Clock>(scenario);
             top_up(&mut house_data, mint_for_testing<SUI>(1000 * 1000000000, test_scenario::ctx(scenario)));
 
             // Test create
-            let game_id = create<SUI>(3125272, &mut house_data, &house_cap, test_scenario::ctx(scenario));
+            let game_id = create<SUI>(&clock, 3125272, &mut house_data, &house_cap, test_scenario::ctx(scenario));
             test_scenario::return_shared(house_data);
             test_scenario::return_to_address<HouseCap>(house, house_cap);
+            test_scenario::return_shared(clock);
             game_id
         };
         game_id
@@ -647,6 +658,8 @@ module suilette::drand_based_roulette {
     #[test_only]
     public fun init_for_testing(ctx: &mut TxContext) {
         init(ctx);
+        let clock = clock::create_for_testing(ctx);
+        clock::share_for_testing(clock);
     }
 
     // begin with house address
@@ -663,9 +676,11 @@ module suilette::drand_based_roulette {
         {
             // Get the game
             let house_data = test_scenario::take_shared<HouseData<SUI>>(&mut test);
+            let clock = test_scenario::take_shared<Clock>(&mut test);            
 
             // Place a bet on red
             place_bet<SUI>(
+                &clock,
                 mint_for_testing<SUI>(5 * 1000000000, test_scenario::ctx(&mut test)),
                 0,
                 option::none<u64>(),
@@ -677,6 +692,7 @@ module suilette::drand_based_roulette {
                 test_scenario::ctx(&mut test),
             );
             test_scenario::return_shared(house_data);
+            test_scenario::return_shared(clock);
         };
             test_scenario::next_tx(&mut test, house);
         {
@@ -711,9 +727,11 @@ module suilette::drand_based_roulette {
         {
             // Get the game
             let house_data = test_scenario::take_shared<HouseData<SUI>>(&mut test);
+            let clock = test_scenario::take_shared<Clock>(&mut test);            
 
             // Place a bet on 2
             place_bet<SUI>(
+                &clock,
                 mint_for_testing<SUI>(27 * 1000000000, test_scenario::ctx(&mut test)),
                 2,
                 option::some<u64>(2),
@@ -727,6 +745,7 @@ module suilette::drand_based_roulette {
 
             // Place bet on 4
             place_bet<SUI>(
+                &clock,
                 mint_for_testing<SUI>(27 * 1000000000, test_scenario::ctx(&mut test)),
                 2,
                 option::some<u64>(4),
@@ -739,6 +758,7 @@ module suilette::drand_based_roulette {
             );
 
             test_scenario::return_shared(house_data);
+            test_scenario::return_shared(clock);
         };
         test_scenario::next_tx(&mut test, house);
         {
@@ -793,9 +813,11 @@ module suilette::drand_based_roulette {
         {
             // Get the game
             let house_data = test_scenario::take_shared<HouseData<SUI>>(&mut test);
+            let clock = test_scenario::take_shared<Clock>(&mut test);
 
             // Place a bet on 2
             place_bet<SUI>(
+                &clock,
                 mint_for_testing<SUI>(27 * 1000000000, test_scenario::ctx(&mut test)),
                 2,
                 option::some<u64>(2),
@@ -809,6 +831,7 @@ module suilette::drand_based_roulette {
 
             // Place bet on 4
             place_bet<SUI>(
+                &clock,
                 mint_for_testing<SUI>(27 * 1000000000, test_scenario::ctx(&mut test)),
                 2,
                 option::some<u64>(4),
@@ -821,6 +844,7 @@ module suilette::drand_based_roulette {
             );
 
             test_scenario::return_shared(house_data);
+            test_scenario::return_shared(clock);
         };
         test_scenario::next_tx(&mut test, house);
         {
