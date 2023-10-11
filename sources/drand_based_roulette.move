@@ -61,17 +61,18 @@ module suilette::drand_based_roulette {
     struct HouseData<phantom Asset> has key {
         id: UID,
         balance: Balance<Asset>,
-        house: address,
         house_risk: u64,
         max_risk_per_game: u64,
         rebate_manager: RebateManager,
     }
 
-    struct HouseCap has key, store {
+    struct AdminCap has key {
         id: UID,
-        /// The owner of this AccountCap. Note: this is
-        /// derived from an object ID, not a user address
-        owner: address,
+    }
+
+    struct HouseCap has key {
+        id: UID,
+        house_id: ID,
     }
 
     struct RouletteGame<phantom Asset> has key, store {
@@ -90,25 +91,22 @@ module suilette::drand_based_roulette {
 
     // Constructor
     fun init(ctx: &mut TxContext) {
-        let id = object::new(ctx);
-        let owner = tx_context::sender(ctx);
-        let house_cap = HouseCap {
-            id,
-            owner
-        };
-
-        transfer::transfer(house_cap, tx_context::sender(ctx))
+        let admin_cap = AdminCap { id: object::new(ctx) };
+        transfer::transfer(admin_cap, tx_context::sender(ctx))
     }
 
     /// Create a "child account cap" such that id != owner
     /// that can access funds, but cannot create new `AccountCap`s.
-    public fun create_child_account_cap(admin_account_cap: &HouseCap, target_address: address, ctx: &mut TxContext) {
+    public fun create_house_cap(
+        _admin_cap: &AdminCap,
+        house_id: ID,
+        target_address: address,
+        ctx: &mut TxContext,
+    ) {
         // Mint a house cap object
-        assert!(tx_context::sender(ctx) == admin_account_cap.owner, ECallerNotHouse);
-
         let new_house_cap = HouseCap {
             id: object::new(ctx),
-            owner: target_address
+            house_id,
         };
 
         transfer::transfer(new_house_cap, target_address)
@@ -120,12 +118,6 @@ module suilette::drand_based_roulette {
     /// @param house_data: The HouseData object
     public fun balance<Asset>(house_data: &HouseData<Asset>): u64 {
         balance::value(&house_data.balance)
-    }
-
-    /// Returns the address of the house
-    /// @param house_data: The HouseData object
-    public fun house<Asset>(house_data: &HouseData<Asset>): address {
-        house_data.house
     }
 
     /// Returns how much the house can risk
@@ -141,8 +133,8 @@ module suilette::drand_based_roulette {
     }
 
     /// Return the owner of an HouseCap
-    public fun account_owner(house_cap: &HouseCap): address {
-        house_cap.owner
+    public fun houes_cap_id(house_cap: &HouseCap): ID {
+        house_cap.house_id
     }
 
     public fun bets<Asset>(game: &RouletteGame<Asset>): &TableVec<Bet<Asset>> {
@@ -157,36 +149,38 @@ module suilette::drand_based_roulette {
         &game.risk_manager
     }
 
-    /// Change the house cap owner 
-    public entry fun set_account_owner(house_cap: &mut HouseCap, ctx: &mut TxContext) {
-        house_cap.owner = tx_context::sender(ctx);
-    }
-
     // Functions
     /// Initializes the house data object. This object is involed in all games created by the same instance of this package. 
     /// It holds the balance of the house (used for the house's stake as well as for storing the house's earnings), the house address, and the public key of the house.
     /// @param house_cap: The HouseCap object
     /// @param coin: The coin object that will be used to initialize the house balance. Acts as a treasury
-    public entry fun initialize_house_data<Asset>(house_cap: &HouseCap, ctx: &mut TxContext) {
-        assert!(account_owner(house_cap) == tx_context::sender(ctx), ECallerNotHouse);
-
+    public entry fun initialize_house_data<Asset>(
+        admin_cap: &AdminCap,
+        house_address: address,
+        ctx: &mut TxContext
+    ) {
         let house_data = HouseData<Asset> {
             id: object::new(ctx),
             balance: balance::zero(),
-            house: tx_context::sender(ctx),
             house_risk: 0,
             // We just initialize to 1k Sui a game
             max_risk_per_game: 1000 * 1000000000,
             rebate_manager: rem::new(DEFAULT_PLAYER_REBATE_RATE, DEFAULT_REFERRER_REBATE_RATE, ctx),
         };
 
+        create_house_cap(admin_cap, object::id(&house_data), house_address, ctx);
+
         // init function to create the game
         transfer::share_object(house_data);
     }
 
     /// Set the max risk per game that the house can take
-    public entry fun set_max_risk_per_game<Asset>(house_cap: &HouseCap, house_data: &mut HouseData<Asset>, max_risk_per_game: u64, ctx: &mut TxContext) {
-        assert!(account_owner(house_cap) == tx_context::sender(ctx), ECallerNotHouse);
+    public entry fun set_max_risk_per_game<Asset>(
+        house_cap: &HouseCap,
+        house_data: &mut HouseData<Asset>,
+        max_risk_per_game: u64,
+    ) {
+        assert!(houes_cap_id(house_cap) == object::id(house_data), ECallerNotHouse);
         house_data.max_risk_per_game = max_risk_per_game;
     }
 
@@ -203,12 +197,18 @@ module suilette::drand_based_roulette {
 
     /// House can withdraw the entire balance of the house object
     /// @param house_data: The HouseData object
-    public entry fun withdraw<Asset>(house_data: &mut HouseData<Asset>, quantity: u64, ctx: &mut TxContext) {
+    public entry fun withdraw<Asset>(
+        house_cap: &HouseCap,
+        house_data: &mut HouseData<Asset>,
+        quantity: u64,
+        recipient: address,
+        ctx: &mut TxContext
+    ) {
         // only the house address can withdraw funds
-        assert!(tx_context::sender(ctx) == house_data.house, ECallerNotHouse);
+        assert!(houes_cap_id(house_cap) == object::id(house_data), ECallerNotHouse);
         events::emit_house_withdraw<Asset>(quantity);
         let coin = coin::take(&mut house_data.balance, quantity, ctx);
-        transfer::public_transfer(coin, house_data.house);
+        transfer::public_transfer(coin, recipient);
     }
 
     public entry fun update_rebate_rate<Asset>(
@@ -216,9 +216,8 @@ module suilette::drand_based_roulette {
         house_data: &mut HouseData<Asset>,
         player_rate: u64,
         referrer_rate: u64,
-        ctx: &TxContext,
     ) {
-        assert!(account_owner(house_cap) == tx_context::sender(ctx), ECallerNotHouse);
+        assert!(houes_cap_id(house_cap) == object::id(house_data), ECallerNotHouse);
         rem::update_rate(&mut house_data.rebate_manager, player_rate, referrer_rate);
     }
 
@@ -230,7 +229,7 @@ module suilette::drand_based_roulette {
         house_cap: &HouseCap,
         ctx: &mut TxContext
     ): ID {
-        assert!(account_owner(house_cap) == house_data.house, ECallerNotHouse);
+        assert!(houes_cap_id(house_cap) == object::id(house_data), ECallerNotHouse);
 
         let max_risk_per_game = house_data.max_risk_per_game;
         let fund = balance::split(&mut house_data.balance, max_risk_per_game);
@@ -398,9 +397,9 @@ module suilette::drand_based_roulette {
         player_won_part: bool,
         ctx: &mut TxContext
     ) {
+        assert!(houes_cap_id(house_cap) == object::id(house_data), ECallerNotHouse);
         let game = borrow_game_mut(house_data, game_id);
         assert!(game.status != status::completed(), EGameAlreadyCompleted);
-        assert!(account_owner(house_cap) == tx_context::sender(ctx), ECallerNotHouse);
         verify_drand_signature(drand_sig, drand_prev_sig, game.round);
 
         // The randomness is derived from drand_sig by passing it through sha2_256 to make it uniform.
@@ -500,7 +499,7 @@ module suilette::drand_based_roulette {
         ctx: &mut TxContext
     ) {
         // Only owner can delete a game
-        assert!(account_owner(house_cap) == tx_context::sender(ctx), ECallerNotHouse);
+        assert!(houes_cap_id(house_cap) == object::id(house_data), ECallerNotHouse);
 
         let game = borrow_game_mut(house_data, game_id);
         if(page_size > tvec::length(&game.bets))
@@ -594,18 +593,6 @@ module suilette::drand_based_roulette {
     #[test_only] use sui::test_scenario::{Self, Scenario};
     #[test_only] use sui::sui::SUI;
 
-    #[test_only]
-    public fun mint_account_cap_transfer(
-        user: address,
-        ctx: &mut TxContext
-    ) {
-        let house_cap = HouseCap {
-            id: object::new(ctx),
-            owner: tx_context::sender(ctx)
-        };
-        transfer::transfer(house_cap, user);
-    }
-
     // Write a test to test the deletion of a completed game
     // Test that no new bets can be placed in closed game
     // Test that no bets can be placed in a game with too much risk
@@ -624,16 +611,16 @@ module suilette::drand_based_roulette {
         let house: address = @0xAAAA;
         test_scenario::next_tx(scenario, house);
         {
-            // Transfer the house cap
-            mint_account_cap_transfer(house, test_scenario::ctx(scenario));
+            init_for_testing(test_scenario::ctx(scenario));
         };
+
         test_scenario::next_tx(scenario, house);
         {
-            let house_cap = test_scenario::take_from_address<HouseCap>(scenario, house);
+            let admin_cap = test_scenario::take_from_address<AdminCap>(scenario, house);
             // Create the housedata
-            initialize_house_data<SUI>(&house_cap, test_scenario::ctx(scenario));
+            initialize_house_data<SUI>(&admin_cap, house, test_scenario::ctx(scenario));
 
-            test_scenario::return_to_address<HouseCap>(house, house_cap);
+            test_scenario::return_to_address(house, admin_cap);
         };
         test_scenario::next_tx(scenario, house);
         let game_id = {
@@ -892,9 +879,9 @@ module suilette::drand_based_roulette {
         player_won_part: bool,
         ctx: &mut TxContext
     ) {
+        assert!(houes_cap_id(house_cap) == object::id(house_data), ECallerNotHouse);
         let game = borrow_game_mut(house_data, game_id);
         if (game.status == status::completed()) return;
-        assert!(account_owner(house_cap) == tx_context::sender(ctx), ECallerNotHouse);
 
         // We accept some small amount of bias with safe selection
         // 0 or 37 are both losses unless they picked a number

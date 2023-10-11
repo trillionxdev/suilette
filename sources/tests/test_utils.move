@@ -48,7 +48,7 @@ module suilette::init_tool {
 
     use sui::coin;
     use sui::test_scenario::{Self as ts, Scenario};
-    use suilette::drand_based_roulette::{Self as sgame, HouseData, HouseCap};
+    use suilette::drand_based_roulette::{Self as sgame, HouseData, AdminCap};
 
     const HOUSE: address = @0xAAAA;
 
@@ -65,11 +65,11 @@ module suilette::init_tool {
 
         ts::next_tx(scenario, house());
         {
-            let house_cap = ts::take_from_address<HouseCap>(scenario, house());
+            let admin_cap = ts::take_from_address<AdminCap>(scenario, house());
             // Create the housedata
-            sgame::initialize_house_data<T>(&house_cap, ts::ctx(scenario));
+            sgame::initialize_house_data<T>(&admin_cap, house(), ts::ctx(scenario));
 
-            ts::return_to_address<HouseCap>(house(), house_cap);
+            ts::return_to_address(house(), admin_cap);
         };
 
         ts::next_tx(scenario, house());

@@ -23,7 +23,7 @@ module suilette::test_display {
             let house_data = ts::take_shared<HouseData<SUI>>(scenario);
             let house_cap = ts::take_from_address<HouseCap>(scenario, house());
 
-            sgame::update_rebate_rate(&house_cap, &mut house_data, 5_000_000, 5_000_000, ts::ctx(scenario));
+            sgame::update_rebate_rate(&house_cap, &mut house_data, 5_000_000, 5_000_000);
             let game_id = sgame::create<SUI>(0, &mut house_data, &house_cap, ts::ctx(scenario));
 
             ts::return_shared(house_data);
