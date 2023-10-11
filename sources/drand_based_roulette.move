@@ -349,7 +349,7 @@ module suilette::drand_based_roulette {
     }
 
     /// Anyone can close the game by providing the randomness of round - 1. 
-    public entry fun close<Asset>(
+    public entry fun close_bet<Asset>(
         house_data: &mut HouseData<Asset>,
         game_id: ID,
         drand_sig: vector<u8>,
