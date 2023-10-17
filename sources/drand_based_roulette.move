@@ -342,7 +342,7 @@ module suilette::drand_based_roulette {
         };
 
         // add volume
-        rem::add_volume(&mut house_data.rebate_manager, player, coin_value);
+        rem::add_volume_v3(&mut house_data.rebate_manager, player, coin_value);
     }
 
     /// Anyone can close the game by providing the randomness of round - 1. 
@@ -550,7 +550,7 @@ module suilette::drand_based_roulette {
         ctx: &TxContext,
     ) {
         let player = tx_context::sender(ctx);
-        rem::register(&mut house.rebate_manager, player, option::some(referrer));
+        rem::register_v3(&mut house.rebate_manager, player, option::some(referrer));
     }
 
     public fun claim_rebate<Asset>(
@@ -562,7 +562,7 @@ module suilette::drand_based_roulette {
             player_rebate_amount,
             referrer,
             referrer_rebate_amount
-        ) = rem::claim_rebate(&mut house.rebate_manager, player);
+        ) = rem::claim_rebate_v3(&mut house.rebate_manager, player);
         if (player_rebate_amount > 0) {
             transfer::public_transfer(
                 coin::take(&mut house.balance, player_rebate_amount, ctx),

@@ -23,7 +23,7 @@ module suilette::test_display {
             let house_data = ts::take_shared<HouseData<SUI>>(scenario);
             let house_cap = ts::take_from_address<HouseCap>(scenario, house());
 
-            sgame::update_rebate_rate(&house_cap, &mut house_data, 5_000_000, 5_000_000, ts::ctx(scenario));
+            sgame::update_rebate_rate(&house_cap, &mut house_data, 0, 5_000_000, ts::ctx(scenario));
             let game_id = sgame::create<SUI>(0, &mut house_data, &house_cap, ts::ctx(scenario));
 
             ts::return_shared(house_data);
@@ -59,6 +59,8 @@ module suilette::test_display {
         ts::next_tx(scenario, player_2);
         {
             let house_data = ts::take_shared<HouseData<SUI>>(scenario);
+            sgame::set_referrer(&mut house_data, player_1, ts::ctx(scenario));
+            sgame::set_referrer(&mut house_data, player_1, ts::ctx(scenario));
 
             // multi bets
             let bet = coin::mint_for_testing(2_000_000_000, ts::ctx(scenario));
@@ -143,28 +145,66 @@ module suilette::test_display {
 
         ts::next_tx(scenario, player_1);
         {
-            let rebate = ts::take_from_sender<Coin<SUI>>(scenario);
-            assert!(coin::value(&rebate) == 30_000_000, 0);
-            sui::balance::destroy_for_testing(coin::into_balance(rebate));
+            let referrer_rebate = ts::take_from_address<Coin<SUI>>(scenario, player_1);
+            assert!(coin::value(&referrer_rebate) == 120_000_000, 0);
+            sui::balance::destroy_for_testing(coin::into_balance(referrer_rebate));
         };
 
-        ts::next_tx(scenario, player_2);
+        ts::next_tx(scenario, house());
+        let game_id = {
+            let house_data = ts::take_shared<HouseData<SUI>>(scenario);
+            let house_cap = ts::take_from_address<HouseCap>(scenario, house());
+
+            let game_id = sgame::create<SUI>(1, &mut house_data, &house_cap, ts::ctx(scenario));
+
+            ts::return_shared(house_data);
+            ts::return_to_address<HouseCap>(house(), house_cap);
+            game_id
+        };
+
+        let player_3: address = @0x33333;
+        ts::next_tx(scenario, player_3);
         {
             let house_data = ts::take_shared<HouseData<SUI>>(scenario);
             sgame::set_referrer(&mut house_data, player_1, ts::ctx(scenario));
+            sgame::set_referrer(&mut house_data, player_2, ts::ctx(scenario));
+
+            // multi bets
+            let bet = coin::mint_for_testing(10_000_000_000, ts::ctx(scenario));
+            let bet_type = bm::red();
+            let bet_number = option::none();
+            sgame::place_bet(bet, bet_type, bet_number, game_id, &mut house_data, option::none(), option::none(), option::none(), ts::ctx(scenario));
+
+            let bet = coin::mint_for_testing(9_000_000_000, ts::ctx(scenario));
+            let bet_type = bm::odd();
+            let bet_number = option::none();
+            sgame::place_bet(bet, bet_type, bet_number, game_id, &mut house_data, option::none(), option::none(), option::none(), ts::ctx(scenario));
+
+            let bet = coin::mint_for_testing(8_000_000_000, ts::ctx(scenario));
+            let bet_type = bm::number();
+            let bet_number = option::some(7);
+            sgame::place_bet(bet, bet_type, bet_number, game_id, &mut house_data, option::none(), option::none(), option::none(), ts::ctx(scenario));
+
+            let bet = coin::mint_for_testing(7_000_000_000, ts::ctx(scenario));
+            let bet_type = bm::first_twelve();
+            let bet_number = option::none();
+            sgame::place_bet(bet, bet_type, bet_number, game_id, &mut house_data, option::none(), option::none(), option::none(), ts::ctx(scenario));
+
+            ts::return_shared(house_data);            
+        };
+
+        ts::next_tx(scenario, player_1);
+        {
+            let house_data = ts::take_shared<HouseData<SUI>>(scenario);
             sgame::claim_rebate(&mut house_data, ts::ctx(scenario));
             ts::return_shared(house_data);
         };
 
-        ts::next_tx(scenario, player_2);
+        ts::next_tx(scenario, player_1);
         {
             let referrer_rebate = ts::take_from_address<Coin<SUI>>(scenario, player_1);
-            assert!(coin::value(&referrer_rebate) == 120_000_000, 0);
+            assert!(coin::value(&referrer_rebate) == 170_000_000, 0);
             sui::balance::destroy_for_testing(coin::into_balance(referrer_rebate));
-
-            let player_rebate = ts::take_from_address<Coin<SUI>>(scenario, player_2);
-            assert!(coin::value(&player_rebate) == 120_000_000, 0);
-            sui::balance::destroy_for_testing(coin::into_balance(player_rebate));
         };
 
         ts::end(scenario_val);
