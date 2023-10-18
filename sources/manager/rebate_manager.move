@@ -43,6 +43,26 @@ module suilette::rebate_manager {
         amount: u64,
     }
 
+    struct SetReferrerV4<phantom Asset> has copy, drop {
+        player: address,
+        referrer: address,
+    }
+
+    struct PlayerRebateV4<phantom Asset> has copy, drop {
+        player: address,
+        amount: u64,
+    }
+
+    struct ReferrerRebateV4<phantom Asset> has copy, drop {
+        referrer: address,
+        amount: u64,
+    }
+
+    struct ClaimV4<phantom Asset> has copy, drop {
+        user: address,
+        amount: u64,
+    }
+
     public fun new(
         player_rate: u64,
         referrer_rate: u64,
@@ -114,7 +134,88 @@ module suilette::rebate_manager {
         (player_rebate_amount, referrer, referrer_rebate_amount)
     }
 
-    public(friend) fun register_v3(
+    // public(friend) fun register_v3(
+    //     manager: &mut RebateManager,
+    //     player: address,
+    //     referrer: Option<address>,
+    // ) {
+    //     let rebate_table = &mut manager.rebate_table;
+    //     if (table::contains(rebate_table, player)) {
+    //         let rebate_data = table::borrow_mut(rebate_table, player);
+    //         if (option::is_some(&rebate_data.referrer)) return;
+    //         rebate_data.referrer = referrer;
+    //     } else {
+    //         table::add(rebate_table, player, RebateData {
+    //             amount_for_player: 0,
+    //             referrer,
+    //             amount_for_referrer: 0,
+    //         });
+    //     };
+    //     if (option::is_some(&referrer)) {
+    //         event::emit(SetReferrer {
+    //             player,
+    //             referrer: option::destroy_some(referrer),
+    //         });
+    //     };
+    // }
+
+    // public(friend) fun add_volume_v3(
+    //     manager: &mut RebateManager,
+    //     player: address,
+    //     bet_size: u64,
+    // ) {
+    //     if (!table::contains(&manager.rebate_table, player)) {
+    //         register(manager, player, option::none());
+    //     };
+    //     let rebate_data = table::borrow_mut(&mut manager.rebate_table, player);
+    //     let amount_for_player = unsafe_mul(bet_size, manager.player_rate);
+    //     rebate_data.amount_for_player = rebate_data.amount_for_player + amount_for_player;
+
+    //     if (amount_for_player > 0) {
+    //         event::emit(PlayerRebate {
+    //             player,
+    //             amount: amount_for_player,
+    //         })
+    //     };
+
+    //     if (option::is_none(&rebate_data.referrer)) return;
+        
+    //     let referrer = *option::borrow(&rebate_data.referrer);
+    //     if (!table::contains(&manager.rebate_table, referrer)) {
+    //         register(manager, referrer, option::none());
+    //     };
+    //     let rebate_data = table::borrow_mut(&mut manager.rebate_table, referrer);
+    //     let amount_for_referrer = unsafe_mul(bet_size, manager.referrer_rate);
+    //     rebate_data.amount_for_player = rebate_data.amount_for_player + amount_for_referrer;
+    //     if (amount_for_referrer > 0) {
+    //         event::emit(ReferrerRebate {
+    //             referrer,
+    //             amount: amount_for_player,
+    //         })
+    //     };
+    // }
+
+    // public(friend) fun claim_rebate_v3(
+    //     manager: &mut RebateManager,
+    //     player: address,
+    // ): (u64, Option<address>, u64) {
+    //     assert!(table::contains(&manager.rebate_table, player), ENoRegistration);
+    //     let rebate_data = table::borrow_mut(&mut manager.rebate_table, player);
+    //     let player_rebate_amount = rebate_data.amount_for_player;
+    //     let referrer = rebate_data.referrer;
+    //     let referrer_rebate_amount = rebate_data.amount_for_referrer;
+    //     rebate_data.amount_for_player = 0;
+    //     rebate_data.amount_for_referrer = 0;
+    //     if (player_rebate_amount > 0) {
+    //         event::emit(Claim {
+    //             user: player,
+    //             amount: player_rebate_amount,
+    //         });
+    //     };
+    //     (player_rebate_amount, referrer, referrer_rebate_amount)
+    // }
+
+        public(friend) fun register_v4<Asset>(
         manager: &mut RebateManager,
         player: address,
         referrer: Option<address>,
@@ -132,14 +233,14 @@ module suilette::rebate_manager {
             });
         };
         if (option::is_some(&referrer)) {
-            event::emit(SetReferrer {
+            event::emit(SetReferrerV4<Asset> {
                 player,
                 referrer: option::destroy_some(referrer),
             });
         };
     }
 
-    public(friend) fun add_volume_v3(
+    public(friend) fun add_volume_v4<Asset>(
         manager: &mut RebateManager,
         player: address,
         bet_size: u64,
@@ -152,7 +253,7 @@ module suilette::rebate_manager {
         rebate_data.amount_for_player = rebate_data.amount_for_player + amount_for_player;
 
         if (amount_for_player > 0) {
-            event::emit(PlayerRebate {
+            event::emit(PlayerRebateV4<Asset> {
                 player,
                 amount: amount_for_player,
             })
@@ -168,14 +269,14 @@ module suilette::rebate_manager {
         let amount_for_referrer = unsafe_mul(bet_size, manager.referrer_rate);
         rebate_data.amount_for_player = rebate_data.amount_for_player + amount_for_referrer;
         if (amount_for_referrer > 0) {
-            event::emit(ReferrerRebate {
+            event::emit(ReferrerRebateV4<Asset> {
                 referrer,
                 amount: amount_for_player,
             })
         };
     }
 
-    public(friend) fun claim_rebate_v3(
+    public(friend) fun claim_rebate_v4<Asset>(
         manager: &mut RebateManager,
         player: address,
     ): (u64, Option<address>, u64) {
@@ -186,10 +287,12 @@ module suilette::rebate_manager {
         let referrer_rebate_amount = rebate_data.amount_for_referrer;
         rebate_data.amount_for_player = 0;
         rebate_data.amount_for_referrer = 0;
-        event::emit(Claim {
-            user: player,
-            amount: player_rebate_amount,
-        });
+        if (player_rebate_amount > 0) {
+            event::emit(ClaimV4<Asset> {
+                user: player,
+                amount: player_rebate_amount,
+            });
+        };
         (player_rebate_amount, referrer, referrer_rebate_amount)
     }
 }
