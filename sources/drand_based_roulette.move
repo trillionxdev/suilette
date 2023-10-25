@@ -251,6 +251,35 @@ module suilette::drand_based_roulette {
         game_id
     }
 
+    public entry fun create_with_min_bet<Asset>(
+        round: u64,
+        house_data: &mut HouseData<Asset>,
+        house_cap: &HouseCap,
+        min_bet: u64,
+        ctx: &mut TxContext
+    ): ID {
+        assert!(account_owner(house_cap) == house_data.house, ECallerNotHouse);
+
+        // Initialize the number_risk to be a vector of size 38, starting from 0.
+        let game_uid = object::new(ctx);
+        let game = RouletteGame<Asset> {
+            id: game_uid,
+            owner: tx_context::sender(ctx), 
+            round,
+            status: status::in_progress(),
+            bets: tvec::empty(ctx),
+            risk_manager: rm::new_manager(),
+            result_roll: 0,
+            min_bet,
+            settled_bets_count: 0,
+            player_bets_table: table::new(ctx),
+        };
+        let game_id = *object::uid_as_inner(&game.id);
+        dof::add(&mut house_data.id, game_id, game);
+        events::emit_game_created<Asset>(game_id);
+        game_id
+    }
+
     public fun borrow_game<Asset>(house_data: &HouseData<Asset>, game_id: ID): &RouletteGame<Asset> {
         assert!(dof::exists_with_type<ID, RouletteGame<Asset>>(&house_data.id, game_id), EGameNotFound);
         dof::borrow<ID, RouletteGame<Asset>>(&house_data.id, game_id)

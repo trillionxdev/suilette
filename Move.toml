@@ -1,10 +1,11 @@
 [package]
 name = "Suilette"
-version = "0.0.3"
+version = "0.0.5"
 # published-at = "0xc0bfc90b3a663357d63878cef0ec80b623624eb0127300f3accda005cf155a73"
 # published-at = "0x1f6744f22b507380bb632fff0e590a3b45e47006e66c782855cfbaae813f7b35"
 # published-at = "0x195e4e51f1c2a6e72730ef87082dec17046ac1f1634e8ec3aa63a05f37840da8"
-published-at = "0xa1b6bcedb10a96173b4f3bedfd1fbdbdd50f306034b8fcc08c0b55b45554b7b0"
+# published-at = "0xa1b6bcedb10a96173b4f3bedfd1fbdbdd50f306034b8fcc08c0b55b45554b7b0"
+published-at = "0xf7d0a8261e4a0c20de255ade644c78438947e8d7d2f1a34df9a52af59b4eebc7"
 
 [dependencies]
 Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/mainnet" }
